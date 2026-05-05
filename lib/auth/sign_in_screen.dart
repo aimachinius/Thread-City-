@@ -7,9 +7,11 @@ import '../screens/main_screen.dart';
 class SignInScreen extends StatefulWidget {
   const SignInScreen({
     super.key,
+    required this.onLogin,
     required this.onSwitchToSignUp,
   });
 
+  final void Function(String username) onLogin;
   final VoidCallback onSwitchToSignUp;
 
   @override
