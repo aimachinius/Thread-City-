@@ -1,0 +1,148 @@
+// This is your Prisma schema file,
+// learn more about it in the docs: https://pris.ly/d/prisma-schema
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "mysql"
+  url      = env("DATABASE_URL")
+}
+
+model User {
+  id            Int      @id @default(autoincrement())
+  username      String   @unique
+  email         String   @unique
+  password_hash String
+  bio           String?  @db.Text
+  avatar_url    String?
+  created_at    DateTime @default(now())
+  updated_at    DateTime @updatedAt
+
+  posts         Post[]
+  likes         Like[]
+  reposts       Repost[]
+  notifications Notification[] @relation("Recipient")
+  actions       Notification[] @relation("Actor")
+  convsAsUser1  Conversation[] @relation("User1")
+  convsAsUser2  Conversation[] @relation("User2")
+  following     Follow[]       @relation("Following")
+  followers     Follow[]       @relation("Follower")
+
+  @@map("users")
+}
+
+model Post {
+  id         Int      @id @default(autoincrement())
+  user_id    Int
+  parent_id  Int?
+  content    String   @db.Text
+  type       PostType @default(post)
+  created_at DateTime @default(now())
+
+  user       User     @relation(fields: [user_id], references: [id], onDelete: Cascade)
+  parent     Post?    @relation("Thread", fields: [parent_id], references: [id], onDelete: SetNull)
+  replies    Post[]   @relation("Thread")
+  
+  counts     PostCount?
+  likes      Like[]
+  reposts    Repost[]
+  notifications Notification[]
+
+  @@map("posts")
+}
+
+enum PostType {
+  post
+  comment
+  reply
+  quote
+}
+
+model Follow {
+  id           Int      @id @default(autoincrement())
+  follower_id  Int
+  following_id Int
+  created_at   DateTime @default(now())
+
+  follower     User     @relation("Follower", fields: [follower_id], references: [id], onDelete: Cascade)
+  following    User     @relation("Following", fields: [following_id], references: [id], onDelete: Cascade)
+
+  @@unique([follower_id, following_id])
+  @@map("follows")
+}
+
+model Like {
+  id         Int      @id @default(autoincrement())
+  user_id    Int
+  post_id    Int
+  created_at DateTime @default(now())
+
+  user       User     @relation(fields: [user_id], references: [id], onDelete: Cascade)
+  post       Post     @relation(fields: [post_id], references: [id], onDelete: Cascade)
+
+  @@unique([user_id, post_id])
+  @@map("likes")
+}
+
+model Repost {
+  id            Int      @id @default(autoincrement())
+  user_id       Int
+  post_id       Int
+  quote_content String?  @db.Text
+  created_at    DateTime @default(now())
+
+  user          User     @relation(fields: [user_id], references: [id], onDelete: Cascade)
+  post          Post     @relation(fields: [post_id], references: [id], onDelete: Cascade)
+
+  @@map("reposts")
+}
+
+model PostCount {
+  post_id       Int @id
+  like_count    Int @default(0)
+  comment_count Int @default(0)
+  repost_count  Int @default(0)
+
+  post          Post @relation(fields: [post_id], references: [id], onDelete: Cascade)
+
+  @@map("post_counts")
+}
+
+model Notification {
+  id         Int              @id @default(autoincrement())
+  user_id    Int
+  actor_id   Int
+  post_id    Int?
+  type       NotificationType
+  is_read    Boolean          @default(false)
+  created_at DateTime         @default(now())
+
+  user       User             @relation("Recipient", fields: [user_id], references: [id], onDelete: Cascade)
+  actor      User             @relation("Actor", fields: [actor_id], references: [id], onDelete: Cascade)
+  post       Post?            @relation(fields: [post_id], references: [id], onDelete: Cascade)
+
+  @@map("notifications")
+}
+
+enum NotificationType {
+  like
+  reply
+  follow
+  repost
+  mention
+}
+
+model Conversation {
+  id         Int      @id @default(autoincrement())
+  user1_id   Int
+  user2_id   Int
+  created_at DateTime @default(now())
+
+  user1      User     @relation("User1", fields: [user1_id], references: [id], onDelete: Cascade)
+  user2      User     @relation("User2", fields: [user2_id], references: [id], onDelete: Cascade)
+
+  @@unique([user1_id, user2_id])
+  @@map("dm_conversations")
+}

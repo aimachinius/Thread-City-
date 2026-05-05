@@ -20,7 +20,7 @@ class _PostCardState extends State<PostCard> {
   void initState() {
     super.initState();
     isLiked = false;
-    likeCount = widget.post.likes;
+    likeCount = widget.post.likeCount;
   }
 
   void toggleLike() {
@@ -33,6 +33,7 @@ class _PostCardState extends State<PostCard> {
   @override
   Widget build(BuildContext context) {
     final post = widget.post;
+    final author = post.author;
 
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
@@ -46,7 +47,9 @@ class _PostCardState extends State<PostCard> {
         children: [
           CircleAvatar(
             radius: 22,
-            backgroundImage: NetworkImage(post.authorAvatar),
+            backgroundImage: author?.avatarUrl != null 
+                ? NetworkImage(author!.avatarUrl!) 
+                : const NetworkImage('https://i.pravatar.cc/150?u=placeholder'),
           ),
           const SizedBox(width: 12),
           Expanded(
@@ -57,7 +60,7 @@ class _PostCardState extends State<PostCard> {
                   children: [
                     Flexible(
                       child: Text(
-                        post.authorName,
+                        author?.username ?? 'Anonymous',
                         style: const TextStyle(
                           fontWeight: FontWeight.w700,
                           fontSize: 16,
@@ -65,17 +68,15 @@ class _PostCardState extends State<PostCard> {
                         overflow: TextOverflow.ellipsis,
                       ),
                     ),
-                    if (post.verified) ...[
-                      const SizedBox(width: 4),
-                      const Icon(Icons.verified, size: 18, color: Colors.blue),
-                    ],
+                    const SizedBox(width: 4),
+                    const Icon(Icons.verified, size: 18, color: Colors.blue), // Giả định verified
                     const Spacer(),
                     const Icon(Icons.more_horiz, color: AppColors.icon),
                   ],
                 ),
                 const SizedBox(height: 4),
                 Text(
-                  '${post.authorUsername}  ·  ${post.timeAgo}',
+                  '${author?.username ?? 'unknown'}  ·  ${_formatDateTime(post.createdAt)}',
                   style: const TextStyle(
                     color: AppColors.textSecondary,
                     fontSize: 14,
@@ -86,18 +87,6 @@ class _PostCardState extends State<PostCard> {
                   post.content,
                   style: const TextStyle(fontSize: 16, height: 1.45),
                 ),
-                if (post.imageUrl != null) ...[
-                  const SizedBox(height: 14),
-                  ClipRRect(
-                    borderRadius: BorderRadius.circular(18),
-                    child: Image.network(
-                      post.imageUrl!,
-                      width: double.infinity,
-                      height: 220,
-                      fit: BoxFit.cover,
-                    ),
-                  ),
-                ],
                 const SizedBox(height: 14),
                 Row(
                   children: [
@@ -110,13 +99,13 @@ class _PostCardState extends State<PostCard> {
                     const SizedBox(width: 16),
                     _ActionButton(
                       icon: Icons.mode_comment_outlined,
-                      text: FormatUtils.formatCount(post.replies),
+                      text: FormatUtils.formatCount(post.commentCount),
                       onTap: () {},
                     ),
                     const SizedBox(width: 16),
                     _ActionButton(
                       icon: Icons.repeat,
-                      text: FormatUtils.formatCount(post.reposts),
+                      text: FormatUtils.formatCount(post.repostCount),
                       onTap: () {},
                     ),
                     const SizedBox(width: 16),
@@ -132,6 +121,14 @@ class _PostCardState extends State<PostCard> {
         ],
       ),
     );
+  }
+
+  String _formatDateTime(DateTime dt) {
+    final now = DateTime.now();
+    final difference = now.difference(dt);
+    if (difference.inMinutes < 60) return '${difference.inMinutes}m';
+    if (difference.inHours < 24) return '${difference.inHours}h';
+    return '${difference.inDays}d';
   }
 }
 
