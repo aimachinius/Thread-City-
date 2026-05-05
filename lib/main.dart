@@ -1,8 +1,26 @@
 import 'package:flutter/material.dart';
-import 'auth/auth_gate.dart';
+import 'package:provider/provider.dart';
+import 'data/repositories/auth_repository.dart';
+import 'data/repositories/post_repository.dart';
+import 'providers/auth_provider.dart';
+import 'utils/app_routes.dart';
 
 void main() {
-  runApp(const MyApp());
+  // Khởi tạo các dependencies (Repo)
+  final authRepository = AuthRepository();
+  final postRepository = PostRepository();
+
+  runApp(
+    MultiProvider(
+      providers: [
+        Provider<IAuthRepository>.value(value: authRepository),
+        Provider<IPostRepository>.value(value: postRepository),
+        
+        ChangeNotifierProvider(create: (_) => AuthProvider(authRepository)),
+      ],
+      child: const MyApp(),
+    ),
+  );
 }
 
 class MyApp extends StatelessWidget {
@@ -18,7 +36,9 @@ class MyApp extends StatelessWidget {
         fontFamily: 'Roboto',
         useMaterial3: true,
       ),
-      home: const AuthGate(),
+      // App - Provider - Material App - Route
+      onGenerateRoute: AppRoutes.onGenerateRoute,
+      initialRoute: AppRoutes.home,
     );
   }
 }

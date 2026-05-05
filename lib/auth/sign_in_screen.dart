@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import '../../theme/app_colors.dart';
 import '../../widgets/app_logo.dart';
 import '../../widgets/app_text_field.dart';
+import '../screens/main_screen.dart';
 
 class SignInScreen extends StatefulWidget {
   const SignInScreen({
@@ -107,7 +108,15 @@ class _SignInScreenState extends State<SignInScreen> {
                         height: 56,
                         child: ElevatedButton(
                           onPressed: () {
-                            widget.onLogin(usernameController.text.trim());
+                            // Simulate login and navigate to main screen
+                            Navigator.of(context).pushReplacement(
+                              MaterialPageRoute(
+                                builder: (context) => const MainScreen(
+                                  currentUsername: 'testuser',
+                                  currentNickname: 'Test User',
+                                ),
+                              ),
+                            );
                           },
                           style: ElevatedButton.styleFrom(
                             backgroundColor: Colors.black,
