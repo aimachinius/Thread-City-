@@ -1,0 +1,26 @@
+version: '3.8'
+
+services:
+  mysql:
+    image: mysql:8.0
+    container_name: thread_mysql
+    restart: always
+    environment:
+      MYSQL_DATABASE: thread_city
+      MYSQL_USER: thread_user
+      MYSQL_PASSWORD: thread_password
+      MYSQL_ROOT_PASSWORD: root_password
+    ports:
+      - "3308:3306"
+    volumes:
+      - mysql_data:/var/lib/mysql
+
+  redis:
+    image: redis:alpine
+    container_name: thread_redis
+    restart: always
+    ports:
+      - "6379:6379"
+
+volumes:
+  mysql_data:
