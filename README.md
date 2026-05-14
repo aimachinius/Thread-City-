@@ -1,5 +1,4 @@
 # Thread City - Social Network App
-# thread_app
 
 Dự án mạng xã hội Threads-like được xây dựng bằng Flutter (Mobile) và Node.js + Prisma ORM + MySQL + Redis (Backend).
 

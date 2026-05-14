@@ -12,6 +12,7 @@ async function main() {
     where: { email: 'hau@gmail.com' },
     update: {},
     create: {
+      firebase_uid: 'seed_user_uid_123',
       username: 'thanh_hau',
       email: 'hau@gmail.com',
       password_hash: 'hashed_password_here',
