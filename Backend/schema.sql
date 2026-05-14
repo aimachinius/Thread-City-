@@ -1,5 +1,5 @@
 -- Thread-City MySQL Schema
--- Version: 1.0
+-- Version: 1.1
 -- Description: Core database structure for a Threads-like social network.
 
 CREATE DATABASE IF NOT EXISTS thread_city;
@@ -8,11 +8,15 @@ USE thread_city;
 -- 1. Users Table
 CREATE TABLE users (
     id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+    firebase_uid VARCHAR(128) NOT NULL UNIQUE, -- [NEW] Liên kết Firebase
     username VARCHAR(30) NOT NULL UNIQUE,
     email VARCHAR(255) NOT NULL UNIQUE,
-    password_hash VARCHAR(255) NOT NULL,
+    nickname VARCHAR(50) NULL,
+    password_hash VARCHAR(255) NULL, -- [CHANGED] Nullable
     bio TEXT,
     avatar_url VARCHAR(2048),
+    is_verified BOOLEAN DEFAULT FALSE, -- [NEW] Tích xanh
+    status ENUM('active', 'banned', 'deactivated') DEFAULT 'active', -- [NEW] Trạng thái tài khoản
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
     INDEX idx_username (username),
@@ -20,14 +24,14 @@ CREATE TABLE users (
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 -- 2. Posts Table (Handles Posts, Comments, Replies, Quotes)
--- parent_id: NULL for original posts, non-NULL for comments/replies
 CREATE TABLE posts (
     id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
     user_id BIGINT UNSIGNED NOT NULL,
-    parent_id BIGINT UNSIGNED DEFAULT NULL, -- Adjacency List for nested comments
+    parent_id BIGINT UNSIGNED DEFAULT NULL,
     content TEXT NOT NULL,
     type ENUM('post', 'comment', 'reply', 'quote') NOT NULL DEFAULT 'post',
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP, -- [NEW]
     deleted_at TIMESTAMP NULL DEFAULT NULL,
     
     CONSTRAINT fk_post_user FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,
@@ -38,7 +42,20 @@ CREATE TABLE posts (
     INDEX idx_created_at (created_at)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
--- 3. Follows Table
+-- 3. [NEW] Post Media Table (Support multiple images/videos per post)
+CREATE TABLE post_media (
+    id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+    post_id BIGINT UNSIGNED NOT NULL,
+    media_url VARCHAR(2048) NOT NULL,
+    media_type ENUM('image', 'video') NOT NULL,
+    order_index INT DEFAULT 0, -- Thứ tự hiển thị
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+
+    CONSTRAINT fk_media_post FOREIGN KEY (post_id) REFERENCES posts(id) ON DELETE CASCADE,
+    INDEX idx_post_id (post_id)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- 4. Follows Table
 CREATE TABLE follows (
     id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
     follower_id BIGINT UNSIGNED NOT NULL,
@@ -52,7 +69,19 @@ CREATE TABLE follows (
     INDEX idx_following_id (following_id)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
--- 4. Likes Table
+-- 5. [NEW] Blocks Table
+CREATE TABLE blocks (
+    id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+    blocker_id BIGINT UNSIGNED NOT NULL,
+    blocked_id BIGINT UNSIGNED NOT NULL,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+
+    CONSTRAINT fk_blocker FOREIGN KEY (blocker_id) REFERENCES users(id) ON DELETE CASCADE,
+    CONSTRAINT fk_blocked FOREIGN KEY (blocked_id) REFERENCES users(id) ON DELETE CASCADE,
+    UNIQUE KEY unique_block (blocker_id, blocked_id)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- 6. Likes Table
 CREATE TABLE likes (
     id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
     user_id BIGINT UNSIGNED NOT NULL,
@@ -66,13 +95,12 @@ CREATE TABLE likes (
     INDEX idx_post_id (post_id)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
--- 5. Reposts Table (Separate from Posts to track metrics specifically)
--- Note: A Quote post is essentially a Repost with quote_content.
+-- 7. Reposts Table
 CREATE TABLE reposts (
     id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
     user_id BIGINT UNSIGNED NOT NULL,
     post_id BIGINT UNSIGNED NOT NULL,
-    quote_content TEXT DEFAULT NULL, -- If NULL, it's a simple repost
+    quote_content TEXT DEFAULT NULL,
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     
     CONSTRAINT fk_repost_user FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,
@@ -82,7 +110,7 @@ CREATE TABLE reposts (
     INDEX idx_user_id (user_id)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
--- 6. Post Counts (Buffer table for Redis flush)
+-- 8. Post Counts
 CREATE TABLE post_counts (
     post_id BIGINT UNSIGNED PRIMARY KEY,
     like_count INT UNSIGNED DEFAULT 0,
@@ -92,11 +120,37 @@ CREATE TABLE post_counts (
     CONSTRAINT fk_count_post FOREIGN KEY (post_id) REFERENCES posts(id) ON DELETE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
--- 7. Notifications Table
+-- 9. [NEW] Hashtags & Mapping
+CREATE TABLE hashtags (
+    id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+    tag_name VARCHAR(100) NOT NULL UNIQUE,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+CREATE TABLE post_hashtags (
+    post_id BIGINT UNSIGNED NOT NULL,
+    hashtag_id BIGINT UNSIGNED NOT NULL,
+    PRIMARY KEY (post_id, hashtag_id),
+    CONSTRAINT fk_hashtag_post FOREIGN KEY (post_id) REFERENCES posts(id) ON DELETE CASCADE,
+    CONSTRAINT fk_hashtag_tag FOREIGN KEY (hashtag_id) REFERENCES hashtags(id) ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+CREATE TABLE post_media (
+    id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+    post_id BIGINT UNSIGNED NOT NULL,
+    media_url VARCHAR(2048) NOT NULL,
+    media_type ENUM('image', 'video') DEFAULT 'image',
+    order_index INT DEFAULT 0,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    CONSTRAINT fk_media_post FOREIGN KEY (post_id) REFERENCES posts(id) ON DELETE CASCADE,
+    INDEX idx_media_post (post_id)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- 10. Notifications Table
 CREATE TABLE notifications (
     id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
-    user_id BIGINT UNSIGNED NOT NULL, -- The recipient
-    actor_id BIGINT UNSIGNED NOT NULL, -- The trigger user
+    user_id BIGINT UNSIGNED NOT NULL,
+    actor_id BIGINT UNSIGNED NOT NULL,
     post_id BIGINT UNSIGNED DEFAULT NULL,
     type ENUM('like', 'reply', 'follow', 'repost', 'mention') NOT NULL,
     is_read BOOLEAN DEFAULT FALSE,
@@ -110,7 +164,7 @@ CREATE TABLE notifications (
     INDEX idx_created_at (created_at)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
--- 8. DM Conversations
+-- 11. DM Conversations
 CREATE TABLE dm_conversations (
     id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
     user1_id BIGINT UNSIGNED NOT NULL,
@@ -119,10 +173,20 @@ CREATE TABLE dm_conversations (
     
     CONSTRAINT fk_conv_user1 FOREIGN KEY (user1_id) REFERENCES users(id) ON DELETE CASCADE,
     CONSTRAINT fk_conv_user2 FOREIGN KEY (user2_id) REFERENCES users(id) ON DELETE CASCADE,
-    
-    -- Ensure user1_id < user2_id to prevent duplicates (application logic should enforce this)
-    UNIQUE KEY unique_conversation (user1_id, user2_id),
-    
-    INDEX idx_user1 (user1_id),
-    INDEX idx_user2 (user2_id)
+    UNIQUE KEY unique_conversation (user1_id, user2_id)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- 12. [NEW] Messages Table (The actual chat history)
+CREATE TABLE messages (
+    id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+    conversation_id BIGINT UNSIGNED NOT NULL,
+    sender_id BIGINT UNSIGNED NOT NULL,
+    content TEXT NOT NULL,
+    is_read BOOLEAN DEFAULT FALSE,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+
+    CONSTRAINT fk_msg_conv FOREIGN KEY (conversation_id) REFERENCES dm_conversations(id) ON DELETE CASCADE,
+    CONSTRAINT fk_msg_sender FOREIGN KEY (sender_id) REFERENCES users(id) ON DELETE CASCADE,
+    INDEX idx_conv_created (conversation_id, created_at)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
