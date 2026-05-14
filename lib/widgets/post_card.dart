@@ -306,6 +306,14 @@ class _PostCardState extends State<PostCard> {
             ),
     );
   }
+
+  String _formatDateTime(DateTime dt) {
+    final now = DateTime.now();
+    final difference = now.difference(dt);
+    if (difference.inMinutes < 60) return '${difference.inMinutes}m';
+    if (difference.inHours < 24) return '${difference.inHours}h';
+    return '${difference.inDays}d';
+  }
 }
 
 class _ActionButton extends StatefulWidget {
