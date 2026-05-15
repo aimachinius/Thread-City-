@@ -1,18 +1,26 @@
 import 'package:flutter/material.dart';
 import '../screens/main_screen.dart';
+import '../auth/register_screen.dart';
+import '../auth/login_screen.dart';
 
 class AppRoutes {
   static const String home = '/';
-  // Sau này thêm các route khác như: login, post_detail, profile...
+  static const String register = '/register';
+  static const String login = '/login';
 
   static Route<dynamic> onGenerateRoute(RouteSettings settings) {
     switch (settings.name) {
       case home:
         return MaterialPageRoute(
-          builder: (_) => const MainScreen(
-            currentUsername: 'thanh_hau',
-            currentNickname: 'Thanh Hau',
-          ),
+          builder: (_) => const MainScreen(),
+        );
+      case register:
+        return MaterialPageRoute(
+          builder: (_) => const RegisterScreen(),
+        );
+      case login:
+        return MaterialPageRoute(
+          builder: (_) => const LoginScreen(),
         );
       default:
         return MaterialPageRoute(

@@ -11,9 +11,10 @@ services:
       MYSQL_PASSWORD: thread_password
       MYSQL_ROOT_PASSWORD: root_password
     ports:
-      - "3308:3306"
+      - "3308:3306" # Cổng 3308 khớp với file .env
     volumes:
       - mysql_data:/var/lib/mysql
+      - ../Backend/schema.sql:/docker-entrypoint-initdb.d/schema.sql # Nạp schema xịn từ thư mục Backend
 
   redis:
     image: redis:alpine
@@ -21,6 +22,9 @@ services:
     restart: always
     ports:
       - "6379:6379"
+    volumes:
+      - redis_data:/data
 
 volumes:
   mysql_data:
+  redis_data:

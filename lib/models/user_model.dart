@@ -1,7 +1,8 @@
 class UserModel {
-  final String id;
+  final int id;
   final String username;
   final String email;
+  final String? nickname;
   final String? bio;
   final String? avatarUrl;
   final DateTime? createdAt;
@@ -10,6 +11,7 @@ class UserModel {
     required this.id,
     required this.username,
     required this.email,
+    this.nickname,
     this.bio,
     this.avatarUrl,
     this.createdAt,
@@ -17,9 +19,10 @@ class UserModel {
 
   factory UserModel.fromMap(Map<String, dynamic> map) {
     return UserModel(
-      id: map['id'].toString(),
-      username: map['username'],
-      email: map['email'],
+      id: map['id'],
+      username: map['username'] ?? '',
+      email: map['email'] ?? '',
+      nickname: map['nickname'],
       bio: map['bio'],
       avatarUrl: map['avatar_url'],
       createdAt: map['created_at'] != null ? DateTime.parse(map['created_at']) : null,
@@ -31,6 +34,7 @@ class UserModel {
       'id': id,
       'username': username,
       'email': email,
+      'nickname': nickname,
       'bio': bio,
       'avatar_url': avatarUrl,
       'created_at': createdAt?.toIso8601String(),

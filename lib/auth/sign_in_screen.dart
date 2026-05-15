@@ -10,7 +10,7 @@ class SignInScreen extends StatefulWidget {
     required this.onLogin,
     required this.onSwitchToSignUp,
   });
-
+  
   final void Function(String username) onLogin;
   final VoidCallback onSwitchToSignUp;
 
