@@ -3,10 +3,9 @@ import { PrismaClient } from "@prisma/client";
 
 const prisma = new PrismaClient();
 
-// Lấy thông tin Profile và bài viết của User
+// Lấy thông tin Profile của User
 export const getUserProfile = async (req: Request, res: Response) => {
     const firebase_uid = req.params.firebase_uid as string;
-    const viewer_uid = req.query.viewer_uid as string | undefined;
 
     try {
         const user: any = await prisma.user.findUnique({
@@ -24,37 +23,12 @@ export const getUserProfile = async (req: Request, res: Response) => {
 
         if (!user) return res.status(404).json({ message: "User not found" });
 
-        // Lấy danh sách bài viết của user này
-        const posts = await prisma.post.findMany({
-            where: { 
-                user_id: user.id,
-                parent_id: null
-            },
-            include: {
-                user: { select: { id: true, username: true, avatar_url: true } },
-                counts: true,
-                media: true,
-                hashtags: { include: { hashtag: true } },
-                likes: viewer_uid ? {
-                    where: { user: { firebase_uid: viewer_uid } }
-                } : undefined
-            },
-            orderBy: { created_at: 'desc' }
-        });
-
-        const formattedPosts = posts.map((post: any) => ({
-            ...post,
-            isLiked: post.likes ? post.likes.length > 0 : false,
-            likes: undefined
-        }));
-
         return res.json({
             user: {
                 ...user,
                 password_hash: undefined,
                 stats: user._count
-            },
-            posts: formattedPosts
+            }
         });
     } catch (error) {
         console.error('Lỗi getUserProfile:', error);

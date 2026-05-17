@@ -1,15 +1,13 @@
 import 'dart:io';
-import 'dart:convert';
-import 'package:http/http.dart' as http;
-import 'package:flutter/material.dart'; // Quan trọng nhất để có notifyListeners
+import 'package:flutter/material.dart';
 import 'package:firebase_storage/firebase_storage.dart';
-import 'package:firebase_auth/firebase_auth.dart';
 import 'package:image_picker/image_picker.dart';
 import '../models/post_model.dart';
 import '../data/repositories/post_repository.dart';
 import '../data/repositories/user_repository.dart';
 
-class ProfileProvider extends ChangeNotifier {
+
+class UserProvider extends ChangeNotifier {
   final IUserRepository _userRepository;
   final IPostRepository _postRepository;
 
@@ -18,7 +16,7 @@ class ProfileProvider extends ChangeNotifier {
   bool _isLoading = false;
   String? _errorMessage;
 
-  ProfileProvider(this._userRepository, this._postRepository);
+  UserProvider(this._userRepository, this._postRepository);
 
   Map<String, dynamic>? get userData => _userData;
   List<PostModel> get userPosts => _userPosts;
@@ -45,6 +43,8 @@ class ProfileProvider extends ChangeNotifier {
       _userData = userResult;
       _userPosts = postsResult;
     } catch (e) {
+      _userData = null;
+      _userPosts = [];
       _errorMessage = 'Không thể tải thông tin cá nhân. Vui lòng thử lại.';
       print('Lỗi fetchProfile: $e');
     } finally {
@@ -83,7 +83,6 @@ class ProfileProvider extends ChangeNotifier {
     }
   }
 
-
   Future<bool> pickAndUploadAvatar(String firebaseUid) async {
     final picker = ImagePicker();
     try {
@@ -97,7 +96,7 @@ class ProfileProvider extends ChangeNotifier {
       _isLoading = true;
       notifyListeners();
 
-      // 1. Tải lên Firebase Storage qua SDK gốc (Không dùng ẩn danh nữa vì Firebase của bạn đang tắt tính năng này)
+      // 1. Tải lên Firebase Storage qua SDK gốc
       final storageRef = FirebaseStorage.instance
           .ref()
           .child('avatars')
@@ -105,17 +104,13 @@ class ProfileProvider extends ChangeNotifier {
 
       final uploadTask = storageRef.putFile(File(image.path));
       
-      // Chờ quá trình upload hoàn tất
-      final snapshot = await uploadTask.whenComplete(() => null);
-      
-      // Kiểm tra xem Firebase Storage có chặn upload không (do luật bảo mật)
-      if (snapshot.state == TaskState.error) {
-        throw Exception('Firebase Storage từ chối lưu file. Hãy kiểm tra lại Rules.');
-      }
-      
+      // Chờ quá trình upload hoàn tất trực tiếp và an toàn
+      final snapshot = await uploadTask;
       final downloadUrl = await snapshot.ref.getDownloadURL();
 
-      // 2. Cập nhật vào MySQL (thông qua updateProfile)
+      print('[STORAGE] 🎉 Tải ảnh lên thành công. URL: $downloadUrl');
+
+      // 2. Cập nhật vào MySQL
       return await updateProfile(
         firebaseUid: firebaseUid,
         avatarUrl: downloadUrl,
@@ -134,5 +129,30 @@ class ProfileProvider extends ChangeNotifier {
     _userData = null;
     _userPosts = [];
     notifyListeners();
+  }
+
+  /// Cập nhật trạng thái thả tim cục bộ trên danh sách bài đăng của User
+  void updatePostLike(int postId, bool isLiked) {
+    final index = _userPosts.indexWhere((p) => p.id == postId);
+    if (index != -1) {
+      final post = _userPosts[index];
+      _userPosts[index] = post.copyWith(
+        isLiked: isLiked,
+        likeCount: isLiked ? post.likeCount + 1 : post.likeCount - 1,
+      );
+      notifyListeners();
+    }
+  }
+
+  /// Tăng số lượng bình luận cục bộ trên danh sách bài đăng của User
+  void incrementCommentCount(int postId) {
+    final index = _userPosts.indexWhere((p) => p.id == postId);
+    if (index != -1) {
+      final post = _userPosts[index];
+      _userPosts[index] = post.copyWith(
+        commentCount: post.commentCount + 1,
+      );
+      notifyListeners();
+    }
   }
 }

@@ -14,13 +14,7 @@ abstract class IPostRepository {
   });
   Future<bool> toggleLike({required int postId, required String firebaseUid});
   Future<List<PostModel>> getReplies(int postId, {String? firebaseUid});
-  Future<Map<String, dynamic>> getUserProfile(String firebaseUid, {String? viewerUid});
-  Future<void> updateProfile({
-    required String firebaseUid,
-    String? bio,
-    String? avatarUrl,
-    String? nickname,
-  });
+  Future<List<PostModel>> getPostsByUserUid(String firebaseUid, {String? viewerUid});
 }
 
 class PostRepository implements IPostRepository {
@@ -123,55 +117,18 @@ class PostRepository implements IPostRepository {
   }
 
   @override
-  Future<Map<String, dynamic>> getUserProfile(String firebaseUid, {String? viewerUid}) async {
+  Future<List<PostModel>> getPostsByUserUid(String firebaseUid, {String? viewerUid}) async {
     try {
-      // Đổi sang đầu mút mới: /api/users/
       final url = viewerUid != null 
-          ? '$baseUrl/users/$firebaseUid?viewer_uid=$viewerUid'
-          : '$baseUrl/users/$firebaseUid';
+          ? '$baseUrl/posts/user/$firebaseUid?viewer_uid=$viewerUid'
+          : '$baseUrl/posts/user/$firebaseUid';
           
-      final response = await http.get(Uri.parse(url));
+      final response = await http.get(Uri.parse(url)).timeout(const Duration(seconds: 10));
       if (response.statusCode == 200) {
-        final data = jsonDecode(response.body);
-        
-        final List<dynamic> postsJson = data['posts'];
-        final posts = postsJson.map((json) => PostModel.fromMap(json)).toList();
-        
-        return {
-          'user': data['user'],
-          'posts': posts,
-        };
+        final List<dynamic> data = jsonDecode(response.body);
+        return data.map((json) => PostModel.fromMap(json)).toList();
       } else {
-        throw Exception('Không thể tải thông tin cá nhân');
-      }
-    } catch (e) {
-      rethrow;
-    }
-  }
-
-  @override
-  Future<void> updateProfile({
-    required String firebaseUid,
-    String? bio,
-    String? avatarUrl,
-    String? nickname,
-  }) async {
-    try {
-      // Đổi sang đầu mút mới: /api/users/
-      final Map<String, dynamic> body = {};
-      if (bio != null) body['bio'] = bio;
-      if (avatarUrl != null) body['avatar_url'] = avatarUrl;
-      if (nickname != null) body['username'] = nickname;
-
-      final response = await http.patch(
-        Uri.parse('$baseUrl/users/$firebaseUid'),
-        headers: {'Content-Type': 'application/json'},
-        body: jsonEncode(body),
-      );
-
-      if (response.statusCode != 200) {
-        final errorData = jsonDecode(response.body);
-        throw Exception(errorData['message'] ?? 'Không thể cập nhật thông tin');
+        throw Exception('Không thể tải danh sách bài viết của người dùng');
       }
     } catch (e) {
       rethrow;

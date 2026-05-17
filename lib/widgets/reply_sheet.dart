@@ -3,6 +3,8 @@ import 'package:provider/provider.dart';
 import '../models/post_model.dart';
 import '../providers/auth_provider.dart';
 import '../providers/home_provider.dart';
+import '../providers/user_provider.dart';
+import '../providers/post_provider.dart';
 import '../theme/app_colors.dart';
 
 class ReplySheet extends StatefulWidget {
@@ -32,7 +34,9 @@ class _ReplySheetState extends State<ReplySheet> {
     setState(() => _isPosting = true);
 
     final authProvider = context.read<AuthProvider>();
+    final postProvider = context.read<PostProvider>();
     final homeProvider = context.read<HomeProvider>();
+    final userProvider = context.read<UserProvider>();
     final firebaseUid = authProvider.currentUserData?['firebase_uid'];
 
     if (firebaseUid == null) {
@@ -44,7 +48,7 @@ class _ReplySheetState extends State<ReplySheet> {
     }
 
     try {
-      final success = await homeProvider.createPost(
+      final success = await postProvider.createPost(
         firebaseUid: firebaseUid,
         content: content,
         parentId: widget.post.id,
@@ -52,6 +56,10 @@ class _ReplySheetState extends State<ReplySheet> {
       );
 
       if (success && mounted) {
+        // Đồng bộ tăng số lượng comment cục bộ cho bài viết gốc
+        homeProvider.incrementCommentCount(widget.post.id);
+        userProvider.incrementCommentCount(widget.post.id);
+
         Navigator.pop(context);
         widget.onReplySent?.call();
       }

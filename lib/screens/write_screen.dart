@@ -2,10 +2,11 @@ import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import 'package:image_picker/image_picker.dart';
-import '../../providers/auth_provider.dart';
-import '../../providers/home_provider.dart';
-import '../../theme/app_colors.dart';
-import '../../theme/app_typography.dart';
+import '../providers/auth_provider.dart';
+import '../providers/home_provider.dart';
+import '../providers/post_provider.dart';
+import '../theme/app_colors.dart';
+import '../theme/app_typography.dart';
 import '../widgets/hashtag_text_controller.dart';
 import '../services/image_upload_service.dart';
 
@@ -24,7 +25,7 @@ class _WriteScreenState extends State<WriteScreen>
   final ImagePicker _picker = ImagePicker();
   final FocusNode _focusNode = FocusNode();
 
-  List<File> _selectedImages = [];
+  List<Map<String, dynamic>> _selectedMedia = [];
   bool _isUploadingMedia = false;
   late AnimationController _animController;
   late Animation<double> _scaleAnim;
@@ -51,12 +52,53 @@ class _WriteScreenState extends State<WriteScreen>
     super.dispose();
   }
 
-  Future<void> _pickImage() async {
+  void _showMediaPicker() {
+    showModalBottomSheet(
+      context: context,
+      backgroundColor: Colors.white,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+      ),
+      builder: (context) {
+        return SafeArea(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              ListTile(
+                leading: const Icon(Icons.image_outlined, color: Colors.black),
+                title: const Text('Chọn ảnh từ thư viện', style: TextStyle(fontWeight: FontWeight.w600)),
+                onTap: () {
+                  Navigator.pop(context);
+                  _pickImages();
+                },
+              ),
+              ListTile(
+                leading: const Icon(Icons.video_library_outlined, color: Colors.black),
+                title: const Text('Chọn video từ thư viện', style: TextStyle(fontWeight: FontWeight.w600)),
+                onTap: () {
+                  Navigator.pop(context);
+                  _pickVideo();
+                },
+              ),
+              const SizedBox(height: 8),
+            ],
+          ),
+        );
+      },
+    );
+  }
+
+  Future<void> _pickImages() async {
     try {
       final images = await _picker.pickMultiImage(imageQuality: 75);
       if (images.isNotEmpty) {
         setState(() {
-          _selectedImages.addAll(images.map((x) => File(x.path)));
+          for (var x in images) {
+            _selectedMedia.add({
+              'file': File(x.path),
+              'type': 'image',
+            });
+          }
         });
       }
     } catch (e) {
@@ -64,8 +106,25 @@ class _WriteScreenState extends State<WriteScreen>
     }
   }
 
+  Future<void> _pickVideo() async {
+    try {
+      final video = await _picker.pickVideo(source: ImageSource.gallery);
+      if (video != null) {
+        setState(() {
+          _selectedMedia.add({
+            'file': File(video.path),
+            'type': 'video',
+          });
+        });
+      }
+    } catch (e) {
+      debugPrint('Lỗi chọn video: $e');
+    }
+  }
+
   Future<void> _handlePost() async {
     final authProvider = context.read<AuthProvider>();
+    final postProvider = context.read<PostProvider>();
     final homeProvider = context.read<HomeProvider>();
     final firebaseUid = authProvider.currentUserData?['firebase_uid'];
 
@@ -76,16 +135,18 @@ class _WriteScreenState extends State<WriteScreen>
 
     List<Map<String, String>> mediaList = [];
 
-    if (_selectedImages.isNotEmpty) {
+    if (_selectedMedia.isNotEmpty) {
       setState(() => _isUploadingMedia = true);
-      for (var file in _selectedImages) {
+      for (var item in _selectedMedia) {
+        final file = item['file'] as File;
+        final type = item['type'] as String;
         final url = await ImageUploadService.uploadImage(file);
-        if (url != null) mediaList.add({'url': url, 'type': 'image'});
+        if (url != null) mediaList.add({'url': url, 'type': type});
       }
       setState(() => _isUploadingMedia = false);
     }
 
-    final success = await homeProvider.createPost(
+    final success = await postProvider.createPost(
       firebaseUid: firebaseUid,
       content: _controller.text.trim(),
       media: mediaList.isNotEmpty ? mediaList : null,
@@ -93,11 +154,14 @@ class _WriteScreenState extends State<WriteScreen>
 
     if (success && mounted) {
       _controller.clear();
-      setState(() => _selectedImages.clear());
+      setState(() => _selectedMedia.clear());
       _focusNode.unfocus();
       _showSnack('Đã đăng thành công!');
+      
+      // Load lại bảng tin Home để hiển thị bài viết mới đăng ngay lập tức
+      homeProvider.refreshFeed();
     } else if (mounted) {
-      _showSnack(homeProvider.errorMessage ?? 'Đăng thất bại', isError: true);
+      _showSnack(postProvider.errorMessage ?? 'Đăng thất bại', isError: true);
     }
   }
 
@@ -122,8 +186,8 @@ class _WriteScreenState extends State<WriteScreen>
 
   @override
   Widget build(BuildContext context) {
-    final isLoading = context.watch<HomeProvider>().isLoading || _isUploadingMedia;
-    final hasContent = _controller.text.trim().isNotEmpty || _selectedImages.isNotEmpty;
+    final isLoading = context.watch<PostProvider>().isLoading || _isUploadingMedia;
+    final hasContent = _controller.text.trim().isNotEmpty || _selectedMedia.isNotEmpty;
     final canPost = hasContent && !isLoading && !_isOverLimit;
 
     return GestureDetector(
@@ -180,6 +244,7 @@ class _WriteScreenState extends State<WriteScreen>
                         Column(
                           children: [
                             _Avatar(username: widget.currentUsername),
+                            // _Avatar("Anh Quốc "),
                             const SizedBox(height: 8),
                             Container(
                               width: 1.5,
@@ -204,6 +269,7 @@ class _WriteScreenState extends State<WriteScreen>
                             children: [
                               Text(
                                 widget.currentUsername,
+                                // "Anh Quốc",
                                 style: AppTypography.titleMedium.copyWith(
                                   fontWeight: FontWeight.w700,
                                   color: AppColors.textPrimary,
@@ -236,8 +302,8 @@ class _WriteScreenState extends State<WriteScreen>
                       ],
                     ),
 
-                    // Image previews
-                    if (_selectedImages.isNotEmpty) ...[
+                    // Media previews
+                    if (_selectedMedia.isNotEmpty) ...[
                       const SizedBox(height: 16),
                       SizedBox(
                         height: 130,
@@ -245,8 +311,12 @@ class _WriteScreenState extends State<WriteScreen>
                           scrollDirection: Axis.horizontal,
                           padding: const EdgeInsets.only(left: 58),
                           physics: const BouncingScrollPhysics(),
-                          itemCount: _selectedImages.length,
+                          itemCount: _selectedMedia.length,
                           itemBuilder: (context, index) {
+                            final item = _selectedMedia[index];
+                            final file = item['file'] as File;
+                            final type = item['type'] as String;
+
                             return Stack(
                               children: [
                                 Container(
@@ -254,23 +324,49 @@ class _WriteScreenState extends State<WriteScreen>
                                   width: 110,
                                   height: 130,
                                   decoration: BoxDecoration(
+                                    color: Colors.grey[100],
                                     borderRadius: BorderRadius.circular(12),
                                     border: Border.all(
                                       color: AppColors.border,
                                       width: 0.5,
                                     ),
-                                    image: DecorationImage(
-                                      image: FileImage(_selectedImages[index]),
-                                      fit: BoxFit.cover,
-                                    ),
+                                    image: type == 'image'
+                                        ? DecorationImage(
+                                            image: FileImage(file),
+                                            fit: BoxFit.cover,
+                                          )
+                                        : null,
                                   ),
+                                  child: type == 'video'
+                                      ? const Center(
+                                          child: Column(
+                                            mainAxisAlignment: MainAxisAlignment.center,
+                                            children: [
+                                              Icon(
+                                                Icons.video_library_rounded,
+                                                color: Colors.grey,
+                                                size: 32,
+                                              ),
+                                              SizedBox(height: 4),
+                                              Text(
+                                                'VIDEO',
+                                                style: TextStyle(
+                                                  fontSize: 10,
+                                                  fontWeight: FontWeight.bold,
+                                                  color: Colors.grey,
+                                                ),
+                                              ),
+                                            ],
+                                          ),
+                                        )
+                                      : null,
                                 ),
                                 Positioned(
                                   top: 6,
                                   right: 14,
                                   child: GestureDetector(
                                     onTap: () => setState(
-                                      () => _selectedImages.removeAt(index),
+                                      () => _selectedMedia.removeAt(index),
                                     ),
                                     child: Container(
                                       padding: const EdgeInsets.all(4),
@@ -310,7 +406,7 @@ class _WriteScreenState extends State<WriteScreen>
                   // Image picker
                   _IconAction(
                     icon: Icons.image_outlined,
-                    onTap: isLoading ? null : _pickImage,
+                    onTap: isLoading ? null : _showMediaPicker,
                   ),
                   const SizedBox(width: 4),
                   _IconAction(

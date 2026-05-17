@@ -4,10 +4,13 @@ import '../models/post_model.dart';
 import '../models/post_media_model.dart';
 import '../providers/auth_provider.dart';
 import '../providers/home_provider.dart';
+import '../providers/user_provider.dart';
+import '../providers/post_provider.dart';
 import '../theme/app_colors.dart';
 import '../theme/app_typography.dart';
 import '../utils/format_utils.dart';
 import '../screens/post_detail_screen.dart';
+import 'video_player_widget.dart';
 
 class PostCard extends StatefulWidget {
   const PostCard({
@@ -46,19 +49,34 @@ class _PostCardState extends State<PostCard> {
     }
   }
 
-  void handleLike() {
+  void handleLike() async {
     final authProvider = context.read<AuthProvider>();
+    final postProvider = context.read<PostProvider>();
     final homeProvider = context.read<HomeProvider>();
+    final userProvider = context.read<UserProvider>();
     final firebaseUid = authProvider.currentUserData?['firebase_uid'];
 
     if (firebaseUid == null) return;
 
+    final originalIsLiked = isLiked;
     setState(() {
       isLiked = !isLiked;
       likeCount += isLiked ? 1 : -1;
     });
 
-    homeProvider.toggleLike(widget.post.id, firebaseUid);
+    final successIsLiked = await postProvider.toggleLike(widget.post.id, firebaseUid);
+    
+    // Đồng bộ lại trạng thái thực tế từ server vào cả 2 list providers
+    homeProvider.updatePostLike(widget.post.id, successIsLiked);
+    userProvider.updatePostLike(widget.post.id, successIsLiked);
+
+    // Nếu server trả về kết quả không khớp (do lỗi mạng chẳng hạn), khôi phục lại trạng thái trên UI
+    if (successIsLiked == originalIsLiked && mounted) {
+      setState(() {
+        isLiked = originalIsLiked;
+        likeCount = widget.post.likeCount;
+      });
+    }
   }
 
   @override
@@ -257,26 +275,29 @@ class _PostCardState extends State<PostCard> {
     return ClipRRect(
       borderRadius: BorderRadius.circular(12),
       child: media.length == 1
-          ? Image.network(
-              media[0].mediaUrl,
-              fit: BoxFit.cover,
-              width: double.infinity,
-              height: 300,
-              errorBuilder: (context, error, stackTrace) => Container(
-                color: AppColors.divider,
-                height: 300,
-                child: const Center(
-                  child:
-                      Icon(Icons.broken_image, color: AppColors.textTertiary),
-                ),
-              ),
-            )
+          ? (media[0].mediaType == MediaType.video
+              ? VideoPlayerWidget(videoUrl: media[0].mediaUrl)
+              : Image.network(
+                  media[0].mediaUrl,
+                  fit: BoxFit.cover,
+                  width: double.infinity,
+                  height: 300,
+                  errorBuilder: (context, error, stackTrace) => Container(
+                    color: AppColors.divider,
+                    height: 300,
+                    child: const Center(
+                      child:
+                          Icon(Icons.broken_image, color: AppColors.textTertiary),
+                    ),
+                  ),
+                ))
           : SizedBox(
               height: 200,
               child: ListView.builder(
                 scrollDirection: Axis.horizontal,
                 itemCount: media.length,
                 itemBuilder: (context, index) {
+                  final item = media[index];
                   return Container(
                     margin: EdgeInsets.only(
                         right: index < media.length - 1 ? 8 : 0),
@@ -286,19 +307,21 @@ class _PostCardState extends State<PostCard> {
                     ),
                     child: ClipRRect(
                       borderRadius: BorderRadius.circular(8),
-                      child: Image.network(
-                        media[index].mediaUrl,
-                        fit: BoxFit.cover,
-                        errorBuilder: (context, error, stackTrace) => Container(
-                          color: AppColors.divider,
-                          child: const Center(
-                            child: Icon(
-                              Icons.broken_image,
-                              color: AppColors.textTertiary,
+                      child: item.mediaType == MediaType.video
+                          ? VideoPlayerWidget(videoUrl: item.mediaUrl)
+                          : Image.network(
+                              item.mediaUrl,
+                              fit: BoxFit.cover,
+                              errorBuilder: (context, error, stackTrace) => Container(
+                                color: AppColors.divider,
+                                child: const Center(
+                                  child: Icon(
+                                    Icons.broken_image,
+                                    color: AppColors.textTertiary,
+                                  ),
+                                ),
+                              ),
                             ),
-                          ),
-                        ),
-                      ),
                     ),
                   );
                 },

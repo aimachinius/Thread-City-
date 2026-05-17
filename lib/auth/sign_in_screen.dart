@@ -111,10 +111,7 @@ class _SignInScreenState extends State<SignInScreen> {
                             // Simulate login and navigate to main screen
                             Navigator.of(context).pushReplacement(
                               MaterialPageRoute(
-                                builder: (context) => const MainScreen(
-                                  currentUsername: 'testuser',
-                                  currentNickname: 'Test User',
-                                ),
+                                builder: (context) => const MainScreen(),
                               ),
                             );
                           },
