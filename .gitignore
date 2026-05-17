@@ -8,7 +8,9 @@
 .buildlog/
 .history
 .svn/
-migrate_working_dir/
+.project
+.settings/
+.classpath
 
 # IntelliJ related
 *.iml
@@ -16,28 +18,88 @@ migrate_working_dir/
 *.iws
 .idea/
 
-# The .vscode folder contains launch configuration and tasks you configure in
-# VS Code which you may wish to be included in version control, so this line
-# is commented out by default.
-#.vscode/
+# Visual Studio Code related
+.vscode/
 
-# Flutter/Dart/Pub related
-**/doc/api/
-**/ios/Flutter/.last_build_id
-.dart_tool/
-.flutter-plugins
-.flutter-plugins-dependencies
-.pub-cache/
-.pub/
-/build/
+# Flutter/Dart related
+**/build/
+**/.dart_tool/
+**/.packages
+**/.pub-cache/
+**/.pub/
+**/.flutter-plugins
+**/.flutter-plugins-dependencies
+**/generated_plugin_registrant.dart
+.metadata
 
-# Symbolication related
-app.*.symbols
+# Android related
+**/android/**/generated/
+**/android/local.properties
+**/android/.gradle/
+**/android/app/release/
+**/android/app/debug/
+**/android/app/profile/
+*.jks
+*.keystore
 
-# Obfuscation related
-app.*.map.json
+# iOS related
+**/ios/Pods/
+**/ios/.symlinks/
+**/ios/Flutter/Flutter.framework
+**/ios/Flutter/Flutter.podspec
+**/ios/Flutter/Generated.xcconfig
+**/ios/Flutter/app.flx
+**/ios/Flutter/app.zip
+**/ios/Flutter/flutter_assets/
+**/ios/ServiceDefinitions.json
+**/ios/Runner/GeneratedPluginRegistrant.h
+**/ios/Runner/GeneratedPluginRegistrant.m
+**/ios/DerivedData/
+*.moved-aside
+*.pbxuser
+*.mode1v3
+*.mode2v3
+*.perspectivev3
+!default.pbxuser
+!default.mode1v3
+!default.mode2v3
+!default.perspectivev3
+**/Pods/
 
-# Android Studio will place build artifacts here
-/android/app/debug
-/android/app/profile
-/android/app/release
+# Node.js / Server related
+**/node_modules/
+**/dist/
+**/npm-debug.log*
+**/yarn-debug.log*
+**/yarn-error.log*
+**/.env
+**/.env.local
+**/.env.development.local
+**/.env.test.local
+**/.env.production.local
+
+# Prisma related
+**/server/prisma/dev.db
+**/server/prisma/dev.db-journal
+
+# ImgBB or other API secrets
+secrets.json
+
+# Firebase related
+**/google-services.json
+**/GoogleService-Info.plist
+**/firebase_options.dart
+
+# Android security
+**/android/key.properties
+**/android/app/key.properties
+**/android/app/*.keystore
+**/android/app/*.jks
+
+# Environment and Data
+**/*.sql
+!**/Backend/schema.sql
+**/mysql_data/
+**/.env*
+**/*.log
+

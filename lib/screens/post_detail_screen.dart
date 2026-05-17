@@ -2,11 +2,15 @@ import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import '../models/post_model.dart';
 import '../models/user_model.dart';
+import '../models/post_media_model.dart';
 import '../providers/auth_provider.dart';
 import '../providers/home_provider.dart';
+import '../providers/user_provider.dart';
+import '../providers/post_provider.dart';
 import '../theme/app_colors.dart';
 import '../theme/app_typography.dart';
 import '../widgets/reply_sheet.dart';
+import '../widgets/video_player_widget.dart';
 
 class PostDetailScreen extends StatefulWidget {
   final PostModel post;
@@ -38,7 +42,7 @@ class _PostDetailScreenState extends State<PostDetailScreen> {
       _error = null;
     });
     try {
-      final replies = await context.read<HomeProvider>().getReplies(widget.post.id);
+      final replies = await context.read<PostProvider>().getReplies(widget.post.id);
       if (mounted) {
         setState(() {
           _replies = replies;
@@ -55,14 +59,31 @@ class _PostDetailScreenState extends State<PostDetailScreen> {
     }
   }
 
-  void _handleLike() {
+  void _handleLike() async {
     final uid = context.read<AuthProvider>().currentUserData?['firebase_uid'];
     if (uid == null) return;
+
+    final originalIsLiked = _isLiked;
     setState(() {
       _isLiked = !_isLiked;
       _likeCount += _isLiked ? 1 : -1;
     });
-    context.read<HomeProvider>().toggleLike(widget.post.id, uid);
+
+    final postProvider = context.read<PostProvider>();
+    final homeProvider = context.read<HomeProvider>();
+    final userProvider = context.read<UserProvider>();
+
+    final successIsLiked = await postProvider.toggleLike(widget.post.id, uid);
+
+    homeProvider.updatePostLike(widget.post.id, successIsLiked);
+    userProvider.updatePostLike(widget.post.id, successIsLiked);
+
+    if (successIsLiked == originalIsLiked && mounted) {
+      setState(() {
+        _isLiked = originalIsLiked;
+        _likeCount = widget.post.likeCount;
+      });
+    }
   }
 
   void _openReplySheet() {
@@ -249,33 +270,42 @@ Widget _buildRichContent(String content, {bool isSmall = false}) {
   );
 }
 
-Widget _buildMedia(List<dynamic> media) {
+Widget _buildMedia(List<PostMediaModel> media) {
   return Padding(
     padding: const EdgeInsets.only(top: 8.0),
     child: ClipRRect(
       borderRadius: BorderRadius.circular(12),
       child: media.length == 1
-          ? Image.network(
-              media[0].mediaUrl,
-              fit: BoxFit.cover,
-              width: double.infinity,
-              errorBuilder: (context, error, stackTrace) => const SizedBox(),
-            )
+          ? (media[0].mediaType == MediaType.video
+              ? VideoPlayerWidget(videoUrl: media[0].mediaUrl)
+              : Image.network(
+                  media[0].mediaUrl,
+                  fit: BoxFit.cover,
+                  width: double.infinity,
+                  errorBuilder: (context, error, stackTrace) => const SizedBox(),
+                ))
           : SizedBox(
               height: 180,
               child: ListView.builder(
                 scrollDirection: Axis.horizontal,
                 itemCount: media.length,
                 itemBuilder: (context, index) {
+                  final item = media[index];
                   return Container(
                     margin: const EdgeInsets.only(right: 8),
                     width: 140,
                     decoration: BoxDecoration(
                       borderRadius: BorderRadius.circular(8),
-                      image: DecorationImage(
-                        image: NetworkImage(media[index].mediaUrl),
-                        fit: BoxFit.cover,
-                      ),
+                    ),
+                    child: ClipRRect(
+                      borderRadius: BorderRadius.circular(8),
+                      child: item.mediaType == MediaType.video
+                          ? VideoPlayerWidget(videoUrl: item.mediaUrl)
+                          : Image.network(
+                              item.mediaUrl,
+                              fit: BoxFit.cover,
+                              errorBuilder: (context, error, stackTrace) => const SizedBox(),
+                            ),
                     ),
                   );
                 },
@@ -350,14 +380,31 @@ class _ReplyCardState extends State<_ReplyCard> {
     _likeCount = widget.reply.likeCount;
   }
 
-  void _handleLike() {
+  void _handleLike() async {
     final uid = context.read<AuthProvider>().currentUserData?['firebase_uid'];
     if (uid == null) return;
+
+    final originalIsLiked = _isLiked;
     setState(() {
       _isLiked = !_isLiked;
       _likeCount += _isLiked ? 1 : -1;
     });
-    context.read<HomeProvider>().toggleLike(widget.reply.id, uid);
+
+    final postProvider = context.read<PostProvider>();
+    final homeProvider = context.read<HomeProvider>();
+    final userProvider = context.read<UserProvider>();
+
+    final successIsLiked = await postProvider.toggleLike(widget.reply.id, uid);
+
+    homeProvider.updatePostLike(widget.reply.id, successIsLiked);
+    userProvider.updatePostLike(widget.reply.id, successIsLiked);
+
+    if (successIsLiked == originalIsLiked && mounted) {
+      setState(() {
+        _isLiked = originalIsLiked;
+        _likeCount = widget.reply.likeCount;
+      });
+    }
   }
 
   @override

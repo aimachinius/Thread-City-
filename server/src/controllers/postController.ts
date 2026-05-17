@@ -212,3 +212,46 @@ export const toggleLike = async (req: Request, res: Response) => {
         return res.status(500).json({ message: "Internal server error" });
     }
 };
+
+// Lấy danh sách bài viết của một user cụ thể
+export const getPostsByUserUid = async (req: Request, res: Response) => {
+    const firebase_uid = req.params.firebase_uid as string;
+    const viewer_uid = req.query.viewer_uid as string | undefined;
+
+    try {
+        const user = await prisma.user.findUnique({
+            where: { firebase_uid }
+        });
+
+        if (!user) return res.status(404).json({ message: "User not found" });
+
+        const posts = await prisma.post.findMany({
+            where: { 
+                user_id: user.id,
+                parent_id: null
+            },
+            include: {
+                user: { select: { id: true, username: true, avatar_url: true } },
+                counts: true,
+                media: true,
+                hashtags: { include: { hashtag: true } },
+                likes: viewer_uid ? {
+                    where: { user: { firebase_uid: viewer_uid } }
+                } : undefined
+            },
+            orderBy: { created_at: 'desc' }
+        });
+
+        const formattedPosts = posts.map((post: any) => ({
+            ...post,
+            isLiked: post.likes ? post.likes.length > 0 : false,
+            likes: undefined
+        }));
+
+        return res.json(formattedPosts);
+    } catch (error) {
+        console.error('Lỗi getPostsByUserUid:', error);
+        return res.status(500).json({ message: "Internal server error" });
+    }
+};
+

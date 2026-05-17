@@ -7,9 +7,6 @@ class AuthGate extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     // Temporarily bypass auth and go directly to main screen
-    return const MainScreen(
-      currentUsername: 'testuser',
-      currentNickname: 'Test User',
-    );
+    return const MainScreen();
   }
 }
