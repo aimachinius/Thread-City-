@@ -373,7 +373,7 @@ class _ActionButtonState extends State<_ActionButton> {
             children: [
               Icon(
                 widget.icon,
-                size: 18,
+                size: 24,
                 color: widget.color,
               ),
               if (widget.text != null && widget.text != '0') ...[
