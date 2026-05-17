@@ -153,7 +153,11 @@ class _PostDetailScreenState extends State<PostDetailScreen> {
       itemBuilder: (context, index) {
         if (index == 0) return _buildOriginalPost();
         final reply = _replies[index - 1];
-        return _ReplyCard(reply: reply, onReplyAdded: _loadReplies);
+        return _ReplyCard(
+          reply: reply,
+          onReplyAdded: _loadReplies,
+          originalAuthorId: widget.post.userId,
+        );
       },
     );
   }
@@ -200,36 +204,72 @@ class _PostDetailScreenState extends State<PostDetailScreen> {
           if (post.media.isNotEmpty) _buildMedia(post.media),
           const SizedBox(height: 16),
           Row(
-            mainAxisAlignment: MainAxisAlignment.start,
             children: [
-              _ActionBtn(
-                icon: _isLiked ? Icons.favorite : Icons.favorite_border,
-                color: _isLiked ? Colors.red : AppColors.icon,
+              // Nút Thích + Số lượng
+              GestureDetector(
                 onTap: _handleLike,
+                behavior: HitTestBehavior.opaque,
+                child: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Icon(
+                      _isLiked ? Icons.favorite : Icons.favorite_border,
+                      size: 24,
+                      color: _isLiked ? Colors.red : AppColors.icon,
+                    ),
+                    if (_likeCount > 0) ...[
+                      const SizedBox(width: 6),
+                      Text(
+                        '$_likeCount',
+                        style: const TextStyle(
+                          fontSize: 14,
+                          color: AppColors.textSecondary,
+                          fontWeight: FontWeight.w500,
+                        ),
+                      ),
+                    ],
+                  ],
+                ),
               ),
-              const SizedBox(width: 16),
-              _ActionBtn(
-                icon: Icons.chat_bubble_outline,
+              const SizedBox(width: 24), // Giãn cách rộng hơn giữa các nút
+              
+              // Nút Bình luận + Số lượng
+              GestureDetector(
                 onTap: _openReplySheet,
+                behavior: HitTestBehavior.opaque,
+                child: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    const Icon(
+                      Icons.chat_bubble_outline,
+                      size: 24,
+                      color: AppColors.icon,
+                    ),
+                    if (post.commentCount > 0) ...[
+                      const SizedBox(width: 6),
+                      Text(
+                        '${post.commentCount}',
+                        style: const TextStyle(
+                          fontSize: 14,
+                          color: AppColors.textSecondary,
+                          fontWeight: FontWeight.w500,
+                        ),
+                      ),
+                    ],
+                  ],
+                ),
               ),
-              const SizedBox(width: 16),
+              const SizedBox(width: 24), // Giãn cách rộng hơn
+              
+              // Nút Repost
               const _ActionBtn(icon: Icons.repeat_outlined),
-              const SizedBox(width: 16),
+              const SizedBox(width: 24),
+              
+              // Nút Gửi
               const _ActionBtn(icon: Icons.send_outlined),
             ],
           ),
           const SizedBox(height: 16),
-          if (post.commentCount > 0 || _likeCount > 0)
-            Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  '${post.commentCount > 0 ? '${post.commentCount} bình luận' : ''}${post.commentCount > 0 && _likeCount > 0 ? ' · ' : ''}${_likeCount > 0 ? '$_likeCount lượt thích' : ''}',
-                  style: const TextStyle(color: AppColors.textSecondary, fontSize: 14),
-                ),
-                const SizedBox(height: 16),
-              ],
-            ),
           const Divider(height: 1, thickness: 0.5, color: AppColors.border),
         ],
       ),
@@ -353,7 +393,7 @@ class _ActionBtn extends StatelessWidget {
       behavior: HitTestBehavior.opaque,
       child: Padding(
         padding: const EdgeInsets.all(4.0),
-        child: Icon(icon, size: 22, color: color),
+        child: Icon(icon, size: 24, color: color),
       ),
     );
   }
@@ -362,8 +402,13 @@ class _ActionBtn extends StatelessWidget {
 class _ReplyCard extends StatefulWidget {
   final PostModel reply;
   final VoidCallback? onReplyAdded;
+  final int originalAuthorId;
 
-  const _ReplyCard({required this.reply, this.onReplyAdded});
+  const _ReplyCard({
+    required this.reply,
+    this.onReplyAdded,
+    required this.originalAuthorId,
+  });
 
   @override
   State<_ReplyCard> createState() => _ReplyCardState();
@@ -372,12 +417,14 @@ class _ReplyCard extends StatefulWidget {
 class _ReplyCardState extends State<_ReplyCard> {
   late bool _isLiked;
   late int _likeCount;
+  bool _showAllReplies = false;
 
   @override
   void initState() {
     super.initState();
     _isLiked = widget.reply.isLiked;
     _likeCount = widget.reply.likeCount;
+    _showAllReplies = false;
   }
 
   void _handleLike() async {
@@ -411,55 +458,308 @@ class _ReplyCardState extends State<_ReplyCard> {
   Widget build(BuildContext context) {
     final author = widget.reply.author;
 
-    return Container(
-      padding: const EdgeInsets.all(16),
-      child: Row(
+    // Tìm phản hồi của tác giả bài đăng gốc nếu có
+    PostModel? authorReply;
+    for (var r in widget.reply.replies) {
+      if (r.userId == widget.originalAuthorId) {
+        authorReply = r;
+        break;
+      }
+    }
+
+    final totalReplies = widget.reply.replies.length;
+
+    return GestureDetector(
+      onTap: () {
+        Navigator.push(
+          context,
+          MaterialPageRoute(
+            builder: (_) => PostDetailScreen(post: widget.reply),
+          ),
+        );
+      },
+      behavior: HitTestBehavior.opaque,
+      child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          _buildAvatar(author?.avatarUrl, size: 36),
-          const SizedBox(width: 12),
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Row(
-                  children: [
-                    Expanded(
-                      child: Text(
-                        author?.username ?? 'Unknown',
-                        style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 14),
-                      ),
+          // 1. Giao diện bình luận gốc (Level 1)
+          Container(
+            padding: const EdgeInsets.fromLTRB(16, 16, 16, 0),
+            child: IntrinsicHeight(
+              child: Row(
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [
+                  // Cột bên trái: Ảnh đại diện + Đường chỉ thẳng nối xuống
+                  Column(
+                    children: [
+                      _buildAvatar(author?.avatarUrl, size: 36),
+                      if (totalReplies > 0)
+                        Expanded(
+                          child: Container(
+                            width: 2,
+                            color: Colors.grey[200],
+                          ),
+                        ),
+                    ],
+                  ),
+                  const SizedBox(width: 12),
+                  // Cột bên phải: Nội dung bình luận + Cụm nút bấm
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Row(
+                          children: [
+                            Expanded(
+                              child: Text(
+                                author?.username ?? 'Unknown',
+                                style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 14),
+                              ),
+                            ),
+                            Text(
+                              _timeAgo(widget.reply.createdAt),
+                              style: const TextStyle(color: AppColors.textSecondary, fontSize: 13),
+                            ),
+                          ],
+                        ),
+                        const SizedBox(height: 4),
+                        _buildRichContent(widget.reply.content, isSmall: true),
+                        if (widget.reply.media.isNotEmpty) _buildMedia(widget.reply.media),
+                        const SizedBox(height: 12),
+                        Row(
+                          children: [
+                            // Nút Thích + Số lượng (Icon 24)
+                            GestureDetector(
+                              onTap: _handleLike,
+                              behavior: HitTestBehavior.opaque,
+                              child: Row(
+                                mainAxisSize: MainAxisSize.min,
+                                children: [
+                                  Icon(
+                                    _isLiked ? Icons.favorite : Icons.favorite_border,
+                                    size: 24, // Icon to lên một chút
+                                    color: _isLiked ? Colors.red : AppColors.icon,
+                                  ),
+                                  if (_likeCount > 0) ...[
+                                    const SizedBox(width: 6),
+                                    Text(
+                                      '$_likeCount',
+                                      style: const TextStyle(
+                                        fontSize: 13,
+                                        color: AppColors.textSecondary,
+                                        fontWeight: FontWeight.w500,
+                                      ),
+                                    ),
+                                  ],
+                                ],
+                              ),
+                            ),
+                            const SizedBox(width: 24), // Giãn cách rộng hơn giữa các nút
+                            
+                            // Nút Bình luận + Số lượng (Icon 24)
+                            GestureDetector(
+                              onTap: () {
+                                showModalBottomSheet(
+                                  context: context,
+                                  isScrollControlled: true,
+                                  backgroundColor: Colors.transparent,
+                                  builder: (_) => ReplySheet(
+                                    post: widget.reply,
+                                    onReplySent: widget.onReplyAdded,
+                                  ),
+                                );
+                              },
+                              behavior: HitTestBehavior.opaque,
+                              child: Row(
+                                mainAxisSize: MainAxisSize.min,
+                                children: [
+                                  const Icon(
+                                    Icons.chat_bubble_outline,
+                                    size: 24, // Icon to lên một chút
+                                    color: AppColors.icon,
+                                  ),
+                                  if (widget.reply.commentCount > 0) ...[
+                                    const SizedBox(width: 6),
+                                    Text(
+                                      '${widget.reply.commentCount}',
+                                      style: const TextStyle(
+                                        fontSize: 13,
+                                        color: AppColors.textSecondary,
+                                        fontWeight: FontWeight.w500,
+                                      ),
+                                    ),
+                                  ],
+                                ],
+                              ),
+                            ),
+                            const SizedBox(width: 24), // Giãn cách rộng hơn
+                            
+                            // Nút Repost
+                            const _ActionBtn(icon: Icons.repeat_outlined),
+                          ],
+                        ),
+                        const SizedBox(height: 12),
+                      ],
                     ),
-                    Text(
-                      _timeAgo(widget.reply.createdAt),
-                      style: const TextStyle(color: AppColors.textSecondary, fontSize: 13),
-                    ),
-                  ],
-                ),
-                const SizedBox(height: 4),
-                _buildRichContent(widget.reply.content, isSmall: true),
-                if (widget.reply.media.isNotEmpty) _buildMedia(widget.reply.media),
-                const SizedBox(height: 12),
-                Row(
-                  children: [
-                    _ActionBtn(
-                      icon: _isLiked ? Icons.favorite : Icons.favorite_border,
-                      color: _isLiked ? Colors.red : AppColors.icon,
-                      onTap: _handleLike,
-                    ),
-                    const SizedBox(width: 16),
-                    const _ActionBtn(icon: Icons.chat_bubble_outline),
-                    const SizedBox(width: 16),
-                    const _ActionBtn(icon: Icons.repeat_outlined),
-                  ],
-                ),
-                const SizedBox(height: 8),
-                const Divider(height: 1, thickness: 0.5, color: AppColors.border),
-              ],
+                  ),
+                ],
+              ),
             ),
           ),
+          
+          // 2. Giao diện nhánh nối (Curved Thread Line) & Bình luận của con (Level 2)
+          if (_showAllReplies && totalReplies >= 1 && totalReplies <= 3)
+            Container(
+              padding: const EdgeInsets.symmetric(horizontal: 16),
+              child: Column(
+                children: [
+                  for (int i = 0; i < widget.reply.replies.length; i++)
+                    IntrinsicHeight(
+                      child: Row(
+                        crossAxisAlignment: CrossAxisAlignment.stretch,
+                        children: [
+                          SizedBox(
+                            width: 48,
+                            child: CustomPaint(
+                              painter: ThreadCurvePainter(
+                                color: Colors.grey[200]!,
+                                isLast: i == widget.reply.replies.length - 1,
+                              ),
+                            ),
+                          ),
+                          Expanded(
+                            child: Padding(
+                              padding: const EdgeInsets.only(bottom: 16), // Tạo khoảng giãn cho đường nối chạy liên tục
+                              child: _buildAuthorReplyBranch(
+                                widget.reply.replies[i],
+                                isAuthor: widget.reply.replies[i].userId == widget.originalAuthorId,
+                              ),
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                ],
+              ),
+            )
+          else if (!_showAllReplies && authorReply != null)
+            Container(
+              padding: const EdgeInsets.symmetric(horizontal: 16),
+              child: IntrinsicHeight(
+                child: Row(
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                  children: [
+                    SizedBox(
+                      width: 48,
+                      child: CustomPaint(
+                        painter: ThreadCurvePainter(color: Colors.grey[200]!, isLast: true),
+                      ),
+                    ),
+                    Expanded(
+                      child: Padding(
+                        padding: const EdgeInsets.only(bottom: 16),
+                        child: _buildAuthorReplyBranch(authorReply, isAuthor: true),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+
+          // 3. Nút Hiện bình luận / Xem phản hồi (chỉ hiện khi có 1-3 bình luận, chưa nhấn Hiện bình luận, và còn phản hồi ẩn)
+          if (totalReplies >= 1 && totalReplies <= 3 && !_showAllReplies && (authorReply == null || totalReplies > 1))
+            Padding(
+              padding: const EdgeInsets.fromLTRB(16, 4, 16, 8),
+              child: Row(
+                children: [
+                  SizedBox(
+                    width: 48,
+                    height: 24,
+                    child: CustomPaint(
+                      painter: ThreadCurvePainter(color: Colors.grey[200]!, isLast: true),
+                    ),
+                  ),
+                  GestureDetector(
+                    onTap: () {
+                      setState(() {
+                        _showAllReplies = true;
+                      });
+                    },
+                    child: Text(
+                      'Xem thêm ${totalReplies - (authorReply != null ? 1 : 0)} phản hồi...',
+                      style: const TextStyle(
+                        color: AppColors.textSecondary,
+                        fontSize: 13,
+                        fontWeight: FontWeight.w500,
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+
+          const SizedBox(height: 12),
+          const Divider(height: 1, thickness: 0.5, color: AppColors.border),
         ],
       ),
+    );
+  }
+
+  Widget _buildAuthorReplyBranch(PostModel authorReply, {bool isAuthor = false}) {
+    final author = authorReply.author;
+    return Row(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        _buildAvatar(author?.avatarUrl, size: 24),
+        const SizedBox(width: 8),
+        Expanded(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Row(
+                children: [
+                  Text(
+                    author?.username ?? 'Tác giả',
+                    style: const TextStyle(
+                      fontWeight: FontWeight.bold,
+                      fontSize: 13,
+                    ),
+                  ),
+                  if (isAuthor) ...[
+                    const SizedBox(width: 6),
+                    Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                      decoration: BoxDecoration(
+                        color: Colors.black.withOpacity(0.06),
+                        borderRadius: BorderRadius.circular(4),
+                      ),
+                      child: const Text(
+                        'Tác giả',
+                        style: TextStyle(
+                          fontSize: 10,
+                          fontWeight: FontWeight.bold,
+                          color: Colors.black54,
+                        ),
+                      ),
+                    ),
+                  ],
+                  const Spacer(),
+                  Text(
+                    _timeAgo(authorReply.createdAt),
+                    style: const TextStyle(
+                      color: AppColors.textSecondary,
+                      fontSize: 11,
+                    ),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 4),
+              _buildRichContent(authorReply.content, isSmall: true),
+              if (authorReply.media.isNotEmpty) _buildMedia(authorReply.media),
+            ],
+          ),
+        ),
+      ],
     );
   }
 
@@ -469,4 +769,59 @@ class _ReplyCardState extends State<_ReplyCard> {
     if (diff.inHours < 24) return '${diff.inHours}h';
     return '${diff.inDays}d';
   }
+}
+
+class ThreadCurvePainter extends CustomPainter {
+  final Color color;
+  final bool isLast;
+  const ThreadCurvePainter({required this.color, this.isLast = true});
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    final paint = Paint()
+      ..color = color
+      ..style = PaintingStyle.stroke
+      ..strokeWidth = 2.0
+      ..strokeCap = StrokeCap.round;
+
+    final path = Path();
+    
+    // Bắt đầu tại điểm giữa của cột chứa Avatar gốc phía trên (x = 18)
+    double startX = 18.0;
+    path.moveTo(startX, 0);
+    
+    // Uốn cong tại y = 12 (ngang tầm giữa của avatar con 24px)
+    double cornerY = 12.0;
+    
+    if (isLast) {
+      // Nhánh cuối cùng: vẽ nét dọc xuống đến cornerY rồi uốn cong rẽ phải
+      path.lineTo(startX, cornerY);
+      path.quadraticBezierTo(
+        startX,
+        18.0, // Điểm điều khiển để có đường cong góc L mượt mà
+        size.width,
+        18.0, // Điểm kết thúc rẽ phải hướng thẳng vào avatar con
+      );
+    } else {
+      // Nhánh trung gian: vẽ đường thẳng chạy tuột xuống tận đáy ô (size.height)
+      path.lineTo(startX, size.height);
+      
+      // Vẽ thêm nhánh cong rẽ sang phải hướng vào avatar con hiện tại
+      final branchPath = Path();
+      branchPath.moveTo(startX, cornerY);
+      branchPath.quadraticBezierTo(
+        startX,
+        18.0,
+        size.width,
+        18.0,
+      );
+      canvas.drawPath(branchPath, paint);
+    }
+
+    canvas.drawPath(path, paint);
+  }
+
+  @override
+  bool shouldRepaint(covariant ThreadCurvePainter oldDelegate) =>
+      oldDelegate.color != color || oldDelegate.isLast != isLast;
 }
