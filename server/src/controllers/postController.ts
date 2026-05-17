@@ -135,8 +135,23 @@ export const getReplies = async (req: Request, res: Response) => {
     const firebase_uid = req.query.firebase_uid as string | undefined;
 
     try {
+        const postId = parseInt(id);
+        if (isNaN(postId)) {
+            return res.status(400).json({ message: "Invalid post ID" });
+        }
+
+        // Tìm bài viết gốc để lấy ID của tác giả gốc (mainPost.user_id)
+        const mainPost = await prisma.post.findUnique({
+            where: { id: postId },
+            select: { user_id: true }
+        });
+
+        if (!mainPost) {
+            return res.status(404).json({ message: "Post not found" });
+        }
+
         const replies = await prisma.post.findMany({
-            where: { parent_id: parseInt(id) },
+            where: { parent_id: postId },
             include: {
                 user: { select: { id: true, username: true, avatar_url: true } },
                 counts: true,
@@ -144,16 +159,38 @@ export const getReplies = async (req: Request, res: Response) => {
                 hashtags: { include: { hashtag: true } },
                 likes: firebase_uid ? {
                     where: { user: { firebase_uid: firebase_uid } }
-                } : undefined
+                } : undefined,
+                // Lấy tất cả phản hồi lồng của bình luận này
+                replies: {
+                    include: {
+                        user: { select: { id: true, username: true, avatar_url: true } },
+                        counts: true,
+                        media: true,
+                        likes: firebase_uid ? {
+                            where: { user: { firebase_uid: firebase_uid } }
+                        } : undefined,
+                    },
+                    orderBy: { created_at: 'asc' }
+                }
             },
             orderBy: { created_at: 'asc' }
         });
 
-        const formattedReplies = replies.map((reply: any) => ({
-            ...reply,
-            isLiked: reply.likes ? reply.likes.length > 0 : false,
-            likes: undefined
-        }));
+        const formattedReplies = replies.map((reply: any) => {
+            const formattedNested = reply.replies && reply.replies.length > 0 
+                ? reply.replies.map((nested: any) => ({
+                    ...nested,
+                    isLiked: nested.likes ? nested.likes.length > 0 : false,
+                    likes: undefined
+                  }))
+                : [];
+            return {
+                ...reply,
+                isLiked: reply.likes ? reply.likes.length > 0 : false,
+                likes: undefined,
+                replies: formattedNested
+            };
+        });
 
         return res.json(formattedReplies);
     } catch (error) {

@@ -21,6 +21,7 @@ class PostModel {
   
   final List<PostMediaModel> media;
   final List<HashtagModel> hashtags;
+  final List<PostModel> replies; // nested replies
 
   PostModel({
     required this.id,
@@ -36,6 +37,7 @@ class PostModel {
     this.isLiked = false,
     this.media = const [],
     this.hashtags = const [],
+    this.replies = const [],
   });
 
   factory PostModel.fromMap(Map<String, dynamic> map) {
@@ -49,6 +51,11 @@ class PostModel {
     List<HashtagModel> parsedHashtags = [];
     if (map['hashtags'] != null && map['hashtags'] is List) {
       parsedHashtags = (map['hashtags'] as List).map((h) => HashtagModel.fromMap(h['hashtag'])).toList();
+    }
+
+    List<PostModel> parsedReplies = [];
+    if (map['replies'] != null && map['replies'] is List) {
+      parsedReplies = (map['replies'] as List).map((r) => PostModel.fromMap(r)).toList();
     }
     
     return PostModel(
@@ -68,6 +75,7 @@ class PostModel {
       isLiked: map['isLiked'] ?? false,
       media: parsedMedia,
       hashtags: parsedHashtags,
+      replies: parsedReplies,
     );
   }
 
@@ -85,6 +93,7 @@ class PostModel {
     bool? isLiked,
     List<PostMediaModel>? media,
     List<HashtagModel>? hashtags,
+    List<PostModel>? replies,
   }) {
     return PostModel(
       id: id ?? this.id,
@@ -100,6 +109,7 @@ class PostModel {
       isLiked: isLiked ?? this.isLiked,
       media: media ?? this.media,
       hashtags: hashtags ?? this.hashtags,
+      replies: replies ?? this.replies,
     );
   }
 }
