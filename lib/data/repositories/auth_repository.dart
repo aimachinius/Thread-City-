@@ -11,14 +11,15 @@ class AuthRepository {
 
   AuthRepository(this.authUrl);
 
-  /// Đăng ký bằng Firebase REST API
+  /// Đăng ký bằng Firebase SDK
   Future<Map<String, dynamic>> signUpWithSDK({
     required String email,
     required String password,
   }) async {
-    print('[AUTH] 🚀 Bắt đầu đăng ký REST API...');
-    final url = Uri.parse('https://identitytoolkit.googleapis.com/v1/accounts:signUp?key=$_firebaseApiKey');
+    print('[AUTH] 🚀 Bắt đầu đăng ký bằng Firebase SDK...');
     
+    /* --- BACKUP REST API (Dùng nếu SDK bị lỗi) ---
+    final url = Uri.parse('https://identitytoolkit.googleapis.com/v1/accounts:signUp?key=$_firebaseApiKey');
     final response = await http.post(
       url,
       headers: {'Content-Type': 'application/json'},
@@ -34,16 +35,40 @@ class AuthRepository {
       throw Exception(data['error']['message'] ?? 'Lỗi đăng ký REST');
     }
     return data;
+    ----------------------------------------------- */
+
+    try {
+      final userCredential = await _firebaseAuth.createUserWithEmailAndPassword(
+        email: email,
+        password: password,
+      );
+      
+      return {
+        'localId': userCredential.user?.uid,
+        'email': userCredential.user?.email,
+      };
+    } on FirebaseAuthException catch (e) {
+      String errorCode = e.code.toUpperCase().replaceAll('-', '_');
+      // Mapping để tương thích với Provider đang dùng REST API codes
+      if (errorCode == 'EMAIL_ALREADY_IN_USE') errorCode = 'EMAIL_EXISTS';
+      
+      print('[AUTH][SDK_ERROR] $errorCode: ${e.message}');
+      throw Exception(errorCode);
+    } catch (e) {
+      print('[AUTH][UNKNOWN_ERROR] $e');
+      throw Exception(e.toString());
+    }
   }
 
-  /// Đăng nhập bằng Firebase REST API
+  /// Đăng nhập bằng Firebase SDK
   Future<Map<String, dynamic>> signInWithSDK({
     required String email,
     required String password,
   }) async {
-    print('[AUTH] 🔑 Bắt đầu đăng nhập REST API...');
+    print('[AUTH] 🔑 Bắt đầu đăng nhập bằng Firebase SDK...');
+
+    /* --- BACKUP REST API (Dùng nếu SDK bị lỗi) ---
     final url = Uri.parse('https://identitytoolkit.googleapis.com/v1/accounts:signInWithPassword?key=$_firebaseApiKey');
-    
     final response = await http.post(
       url,
       headers: {'Content-Type': 'application/json'},
@@ -59,6 +84,30 @@ class AuthRepository {
       throw Exception(data['error']['message'] ?? 'Lỗi đăng nhập REST');
     }
     return data;
+    ----------------------------------------------- */
+
+    try {
+      final userCredential = await _firebaseAuth.signInWithEmailAndPassword(
+        email: email,
+        password: password,
+      );
+      
+      return {
+        'localId': userCredential.user?.uid,
+        'email': userCredential.user?.email,
+      };
+    } on FirebaseAuthException catch (e) {
+      String errorCode = e.code.toUpperCase().replaceAll('-', '_');
+      // Mapping để tương thích với Provider
+      if (errorCode == 'USER_NOT_FOUND') errorCode = 'EMAIL_NOT_FOUND';
+      if (errorCode == 'WRONG_PASSWORD') errorCode = 'INVALID_PASSWORD';
+
+      print('[AUTH][SDK_ERROR] $errorCode: ${e.message}');
+      throw Exception(errorCode);
+    } catch (e) {
+      print('[AUTH][UNKNOWN_ERROR] $e');
+      throw Exception(e.toString());
+    }
   }
 
   /* --- BACKUP REST API (Dùng nếu SDK bị lỗi Timeout trên Android 15) ---
@@ -108,23 +157,54 @@ class AuthRepository {
     required String email,
     required String username,
   }) async {
+    final url = Uri.parse('$authUrl/register');
+    print('[AUTH] 🌐 Đang gọi API MySQL: $url');
+    print('[AUTH] 📦 Body: ${{
+      'firebase_uid': uid,
+      'email': email,
+      'username': username,
+    }}');
+
     try {
       final response = await http.post(
-        Uri.parse('$authUrl/register'),
+        url,
         headers: {'Content-Type': 'application/json'},
         body: jsonEncode({
           'firebase_uid': uid,
           'email': email,
           'username': username,
         }),
-      ).timeout(const Duration(seconds: 10)); // Thêm timeout
+      ).timeout(const Duration(seconds: 10));
+
+      print('[AUTH] 📥 Phản hồi MySQL: ${response.statusCode}');
 
       if (response.statusCode != 201) {
         final errorData = jsonDecode(response.body);
+        print('[AUTH] ❌ Lỗi MySQL: ${errorData['message']}');
         throw Exception(errorData['message'] ?? 'Lỗi đăng ký server');
       }
     } catch (e) {
+      print('[AUTH] 🚨 Lỗi kết nối/timeout MySQL: $e');
       rethrow;
+    }
+  }
+
+  /// Đăng xuất
+  Future<void> signOut() async {
+    print('[AUTH] 🚪 Đăng xuất khỏi Firebase SDK...');
+    await _firebaseAuth.signOut();
+  }
+
+  /// Quên mật khẩu
+  Future<void> sendPasswordResetEmail(String email) async {
+    print('[AUTH] 📧 Gửi email khôi phục mật khẩu cho: $email');
+    try {
+      await _firebaseAuth.sendPasswordResetEmail(email: email);
+    } on FirebaseAuthException catch (e) {
+      print('[AUTH][SDK_ERROR] ${e.code}: ${e.message}');
+      throw Exception(e.code.toUpperCase().replaceAll('-', '_'));
+    } catch (e) {
+      throw Exception(e.toString());
     }
   }
 }

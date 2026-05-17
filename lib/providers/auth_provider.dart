@@ -21,15 +21,26 @@ class AuthProvider extends ChangeNotifier {
     // Đợi 1 chút cho Firebase khởi tạo xong rồi mới lắng nghe
     Future.delayed(const Duration(seconds: 1), () {
       try {
-        _firebaseAuth.authStateChanges().listen((User? user) {
+        _firebaseAuth.authStateChanges().listen((User? user) async {
+          print('[AUTH] 🔄 Trạng thái Auth thay đổi: ${user?.email ?? 'Chưa đăng nhập'}');
           _user = user;
-          if (user == null) {
+          
+          if (user != null) {
+            // Tự động khôi phục dữ liệu MySQL nếu đã login Firebase nhưng chưa có data local
+            if (_currentUserData == null) {
+              final mysqlUser = await _authRepository.getUserByFirebaseUid(user.uid);
+              if (mysqlUser != null) {
+                print('[AUTH] ✅ Đã tự động khôi phục dữ liệu MySQL cho: ${mysqlUser['username']}');
+                _currentUserData = mysqlUser;
+              }
+            }
+          } else {
             _currentUserData = null;
           }
           notifyListeners();
         });
       } catch (e) {
-        print('⚠️ AuthListener chưa sẵn sàng: $e');
+        print('⚠️ AuthListener gặp lỗi: $e');
       }
     });
   }
@@ -39,7 +50,7 @@ class AuthProvider extends ChangeNotifier {
   User? get user => _user;
   Map<String, dynamic>? get currentUserData => _currentUserData;
   
-  // Kiểm tra đăng nhập qua SDK HOẶC qua dữ liệu REST/MySQL đã lưu
+  // Kiểm tra đăng nhập qua SDK HOẶC qua dữ liệu MySQL đã lưu
   bool get isAuthenticated => _user != null || _currentUserData != null;
 
   Future<bool> signUp({
@@ -60,11 +71,11 @@ class AuthProvider extends ChangeNotifier {
 
     try {
       print('---------------------------------------');
-      print('[AUTH] 🚀 Bắt đầu đăng ký qua Firebase REST API...');
+      print('[AUTH] 🚀 Bắt đầu đăng ký qua Firebase SDK...');
       print('[AUTH] 📧 Email: $email');
       print('[AUTH] ⏰ Time: ${DateTime.now()}');
 
-      // BƯỚC 1: Đăng ký qua REST API
+      // BƯỚC 1: Đăng ký qua Firebase SDK
       final Map<String, dynamic> result = await _authRepository.signUpWithSDK(
         email: email,
         password: password,
@@ -126,9 +137,9 @@ class AuthProvider extends ChangeNotifier {
 
     try {
       print('---------------------------------------');
-      print('[AUTH] 🔑 Bắt đầu đăng nhập REST API...');
+      print('[AUTH] 🔑 Bắt đầu đăng nhập Firebase SDK...');
       
-      // BƯỚC 1: Đăng nhập Firebase REST API
+      // BƯỚC 1: Đăng nhập Firebase SDK
       final Map<String, dynamic> result = await _authRepository.signInWithSDK(
         email: email,
         password: password,
@@ -176,9 +187,26 @@ class AuthProvider extends ChangeNotifier {
   }
 
   Future<void> signOut() async {
-    await _firebaseAuth.signOut();
+    await _authRepository.signOut();
     _user = null;
     _currentUserData = null;
     notifyListeners();
+  }
+
+  Future<bool> forgotPassword(String email) async {
+    _isLoading = true;
+    _errorMessage = null;
+    notifyListeners();
+    try {
+      await _authRepository.sendPasswordResetEmail(email);
+      _isLoading = false;
+      notifyListeners();
+      return true;
+    } catch (e) {
+      _errorMessage = 'Lỗi: $e';
+      _isLoading = false;
+      notifyListeners();
+      return false;
+    }
   }
 }

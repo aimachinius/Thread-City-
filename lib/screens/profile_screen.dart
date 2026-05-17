@@ -1,7 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import '../providers/auth_provider.dart';
-import '../providers/profile_provider.dart';
+import '../providers/user_provider.dart';
 import '../theme/app_colors.dart';
 import '../widgets/post_card.dart';
 
@@ -35,7 +35,7 @@ class _ProfileScreenState extends State<ProfileScreen>
   void _fetchProfile() {
     final uid = context.read<AuthProvider>().currentUserData?['firebase_uid'];
     if (uid != null) {
-      context.read<ProfileProvider>().fetchProfile(uid, viewerUid: uid);
+      context.read<UserProvider>().fetchProfile(uid, viewerUid: uid);
     }
   }
 
@@ -63,7 +63,7 @@ class _ProfileScreenState extends State<ProfileScreen>
           final uid =
               context.read<AuthProvider>().currentUserData?['firebase_uid'];
           if (uid != null) {
-            final ok = await context.read<ProfileProvider>().updateProfile(
+            final ok = await context.read<UserProvider>().updateProfile(
                   firebaseUid: uid,
                   nickname: nameCtrl.text,
                   bio: bioCtrl.text,
@@ -77,8 +77,8 @@ class _ProfileScreenState extends State<ProfileScreen>
 
   @override
   Widget build(BuildContext context) {
-    final profileProvider = context.watch<ProfileProvider>();
-    final userData = profileProvider.userData;
+    final userProvider = context.watch<UserProvider>();
+    final userData = userProvider.userData;
     final stats = userData?['stats'] ?? {};
 
     return RefreshIndicator(
@@ -93,7 +93,7 @@ class _ProfileScreenState extends State<ProfileScreen>
                 currentUsername: widget.currentUsername,
                 currentNickname: widget.currentNickname,
                 stats: stats,
-                isLoading: profileProvider.isLoading,
+                isLoading: userProvider.isLoading,
                 onEditTap: () => _showEditSheet(userData),
                 onPickAvatar: () async {
                   final uid = context
@@ -101,7 +101,7 @@ class _ProfileScreenState extends State<ProfileScreen>
                       .currentUserData?['firebase_uid'];
                   if (uid != null) {
                     await context
-                        .read<ProfileProvider>()
+                        .read<UserProvider>()
                         .pickAndUploadAvatar(uid);
                   }
                 },
@@ -137,7 +137,7 @@ class _ProfileScreenState extends State<ProfileScreen>
         body: TabBarView(
           controller: _tabController,
           children: [
-            _buildPostsList(profileProvider),
+            _buildPostsList(userProvider),
             const _EmptyReplies(),
           ],
         ),
@@ -145,7 +145,7 @@ class _ProfileScreenState extends State<ProfileScreen>
     );
   }
 
-  Widget _buildPostsList(ProfileProvider provider) {
+  Widget _buildPostsList(UserProvider provider) {
     if (provider.isLoading && provider.userPosts.isEmpty) {
       return const Center(
         child: SizedBox(
