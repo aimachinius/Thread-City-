@@ -11,6 +11,7 @@ import '../theme/app_colors.dart';
 import '../theme/app_typography.dart';
 import '../widgets/reply_sheet.dart';
 import '../widgets/video_player_widget.dart';
+import 'profile_screen.dart';
 
 class PostDetailScreen extends StatefulWidget {
   final PostModel post;
@@ -95,6 +96,27 @@ class _PostDetailScreenState extends State<PostDetailScreen> {
     );
   }
 
+  void _navigateToProfile(BuildContext context, UserModel? author) {
+    if (author == null) return;
+    
+    final loggedInUser = context.read<AuthProvider>().currentUserData;
+    final loggedInUid = loggedInUser?['firebase_uid'];
+    
+    final isMe = author.username == loggedInUser?['username'] || 
+                 author.id.toString() == loggedInUser?['id']?.toString();
+                 
+    Navigator.push(
+      context,
+      MaterialPageRoute(
+        builder: (_) => ProfileScreen(
+          currentUsername: author.username,
+          currentNickname: author.nickname ?? author.username,
+          viewingUserId: isMe ? loggedInUid : author.id.toString(),
+        ),
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
@@ -173,22 +195,28 @@ class _PostDetailScreenState extends State<PostDetailScreen> {
         children: [
           Row(
             children: [
-              _buildAvatar(author?.avatarUrl, size: 44),
+              GestureDetector(
+                onTap: () => _navigateToProfile(context, author),
+                child: _buildAvatar(author?.avatarUrl, size: 44),
+              ),
               const SizedBox(width: 12),
               Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(
-                      author?.username ?? 'Unknown',
-                      style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16),
-                    ),
-                    if (author?.nickname != null && author!.nickname != author.username)
+                child: GestureDetector(
+                  onTap: () => _navigateToProfile(context, author),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
                       Text(
-                        author.nickname!,
-                        style: const TextStyle(color: AppColors.textSecondary, fontSize: 14),
+                        author?.username ?? 'Unknown',
+                        style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16),
                       ),
-                  ],
+                      if (author?.nickname != null && author!.nickname != author.username)
+                        Text(
+                          author.nickname!,
+                          style: const TextStyle(color: AppColors.textSecondary, fontSize: 14),
+                        ),
+                    ],
+                  ),
                 ),
               ),
               Text(
@@ -454,6 +482,27 @@ class _ReplyCardState extends State<_ReplyCard> {
     }
   }
 
+  void _navigateToProfile(BuildContext context, UserModel? author) {
+    if (author == null) return;
+    
+    final loggedInUser = context.read<AuthProvider>().currentUserData;
+    final loggedInUid = loggedInUser?['firebase_uid'];
+    
+    final isMe = author.username == loggedInUser?['username'] || 
+                 author.id.toString() == loggedInUser?['id']?.toString();
+                 
+    Navigator.push(
+      context,
+      MaterialPageRoute(
+        builder: (_) => ProfileScreen(
+          currentUsername: author.username,
+          currentNickname: author.nickname ?? author.username,
+          viewingUserId: isMe ? loggedInUid : author.id.toString(),
+        ),
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     final author = widget.reply.author;
@@ -492,7 +541,10 @@ class _ReplyCardState extends State<_ReplyCard> {
                   // Cột bên trái: Ảnh đại diện + Đường chỉ thẳng nối xuống
                   Column(
                     children: [
-                      _buildAvatar(author?.avatarUrl, size: 36),
+                      GestureDetector(
+                        onTap: () => _navigateToProfile(context, author),
+                        child: _buildAvatar(author?.avatarUrl, size: 36),
+                      ),
                       if (totalReplies > 0)
                         Expanded(
                           child: Container(
@@ -511,9 +563,12 @@ class _ReplyCardState extends State<_ReplyCard> {
                         Row(
                           children: [
                             Expanded(
-                              child: Text(
-                                author?.username ?? 'Unknown',
-                                style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 14),
+                              child: GestureDetector(
+                                onTap: () => _navigateToProfile(context, author),
+                                child: Text(
+                                  author?.username ?? 'Unknown',
+                                  style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 14),
+                                ),
                               ),
                             ),
                             Text(
@@ -710,7 +765,10 @@ class _ReplyCardState extends State<_ReplyCard> {
     return Row(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        _buildAvatar(author?.avatarUrl, size: 24),
+        GestureDetector(
+          onTap: () => _navigateToProfile(context, author),
+          child: _buildAvatar(author?.avatarUrl, size: 24),
+        ),
         const SizedBox(width: 8),
         Expanded(
           child: Column(
@@ -718,11 +776,14 @@ class _ReplyCardState extends State<_ReplyCard> {
             children: [
               Row(
                 children: [
-                  Text(
-                    author?.username ?? 'Tác giả',
-                    style: const TextStyle(
-                      fontWeight: FontWeight.bold,
-                      fontSize: 13,
+                  GestureDetector(
+                    onTap: () => _navigateToProfile(context, author),
+                    child: Text(
+                      author?.username ?? 'Tác giả',
+                      style: const TextStyle(
+                        fontWeight: FontWeight.bold,
+                        fontSize: 13,
+                      ),
                     ),
                   ),
                   if (isAuthor) ...[

@@ -11,7 +11,8 @@ import 'activity_screen.dart';
 import 'home_screen.dart';
 import 'profile_screen.dart';
 import 'search_screen.dart';
-import 'write_screen.dart';
+import '../../widgets/write_sheet.dart';
+
 
 class MainScreen extends StatefulWidget {
   const MainScreen({super.key});
@@ -42,6 +43,11 @@ class _MainScreenState extends State<MainScreen>
   }
 
   void _onTabChanged(int index) {
+    if (index == 2) {
+      HapticFeedback.mediumImpact();
+      WriteSheet.show(context);
+      return;
+    }
     if (index == _currentIndex) return;
     HapticFeedback.selectionClick();
     
@@ -64,9 +70,13 @@ class _MainScreenState extends State<MainScreen>
     final screens = [
       const HomeScreen(),
       const SearchScreen(),
-      WriteScreen(currentUsername: username),
+      const SizedBox(), // Intercepted by WriteSheet, tab index is unused
       const ActivityScreen(),
-      ProfileScreen(currentUsername: username, currentNickname: nickname),
+      ProfileScreen(
+        currentUsername: username,
+        currentNickname: nickname,
+        isActive: _currentIndex == 4,
+      ),
     ];
 
     return Scaffold(

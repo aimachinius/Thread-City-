@@ -18,6 +18,7 @@ class PostModel {
   final int commentCount;
   final int repostCount;
   final bool isLiked; // Thêm trường này
+  final bool isFollowing; // Trạng thái follow của người xem đối với author của bài viết này
   
   final List<PostMediaModel> media;
   final List<HashtagModel> hashtags;
@@ -35,6 +36,7 @@ class PostModel {
     this.commentCount = 0,
     this.repostCount = 0,
     this.isLiked = false,
+    this.isFollowing = false,
     this.media = const [],
     this.hashtags = const [],
     this.replies = const [],
@@ -73,6 +75,7 @@ class PostModel {
       commentCount: counts['comment_count'] ?? 0,
       repostCount: counts['repost_count'] ?? 0,
       isLiked: map['isLiked'] ?? false,
+      isFollowing: map['isFollowing'] ?? false,
       media: parsedMedia,
       hashtags: parsedHashtags,
       replies: parsedReplies,
@@ -91,6 +94,7 @@ class PostModel {
     int? commentCount,
     int? repostCount,
     bool? isLiked,
+    bool? isFollowing,
     List<PostMediaModel>? media,
     List<HashtagModel>? hashtags,
     List<PostModel>? replies,
@@ -107,6 +111,7 @@ class PostModel {
       commentCount: commentCount ?? this.commentCount,
       repostCount: repostCount ?? this.repostCount,
       isLiked: isLiked ?? this.isLiked,
+      isFollowing: isFollowing ?? this.isFollowing,
       media: media ?? this.media,
       hashtags: hashtags ?? this.hashtags,
       replies: replies ?? this.replies,
