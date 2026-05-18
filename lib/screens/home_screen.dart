@@ -140,7 +140,11 @@ import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import '../providers/home_provider.dart';
 import '../theme/app_colors.dart';
+import 'package:flutter/services.dart';
+import '../providers/auth_provider.dart';
 import '../widgets/post_card.dart';
+import '../widgets/write_sheet.dart';
+
 
 class HomeScreen extends StatefulWidget {
   const HomeScreen({super.key});
@@ -221,8 +225,14 @@ class _FeedView extends StatelessWidget {
   Widget build(BuildContext context) {
     return Consumer<HomeProvider>(
       builder: (context, provider, child) {
+        final isFollowing = feedType == _FeedType.following;
+        final posts = isFollowing ? provider.followingPosts : provider.posts;
+        final isLoading = isFollowing ? provider.isFollowingLoading : provider.isLoading;
+        final errorMessage = isFollowing ? provider.followingErrorMessage : provider.errorMessage;
+        final onRefresh = isFollowing ? provider.refreshFollowingFeed : provider.refreshFeed;
+
         // Loading
-        if (provider.isLoading && provider.posts.isEmpty) {
+        if (isLoading && posts.isEmpty) {
           return const Center(
             child: SizedBox(
               width: 24,
@@ -236,40 +246,25 @@ class _FeedView extends StatelessWidget {
         }
 
         // Error
-        if (provider.errorMessage != null && provider.posts.isEmpty) {
+        if (errorMessage != null && posts.isEmpty) {
           return _EmptyState(
             icon: Icons.wifi_off_rounded,
             title: 'Không tải được',
-            subtitle: provider.errorMessage ?? 'Có lỗi xảy ra',
+            subtitle: errorMessage,
             action: _OutlineButton(
               label: 'Thử lại',
               icon: Icons.refresh_rounded,
-              onTap: provider.fetchFeed,
+              onTap: isFollowing ? provider.fetchFollowingFeed : provider.fetchFeed,
             ),
           );
         }
 
-        // Following tab — empty
-        if (feedType == _FeedType.following && provider.posts.isEmpty) {
-          return const _EmptyState(
-            icon: Icons.person_add_outlined,
-            title: 'Chưa có bài viết',
-            subtitle: 'Theo dõi mọi người để xem bài viết của họ tại đây',
-          );
-        }
+        // Feed or Empty with Top Composer
+        final isEmpty = posts.isEmpty;
+        final listLength = isEmpty ? 2 : posts.length + 1;
 
-        // For You — empty
-        if (provider.posts.isEmpty) {
-          return const _EmptyState(
-            icon: Icons.chat_bubble_outline_rounded,
-            title: 'Chưa có gì ở đây',
-            subtitle: 'Hãy khám phá và theo dõi những người thú vị',
-          );
-        }
-
-        // Feed
         return RefreshIndicator(
-          onRefresh: provider.refreshFeed,
+          onRefresh: onRefresh,
           color: AppColors.textPrimary,
           backgroundColor: AppColors.surface,
           displacement: 40,
@@ -278,11 +273,131 @@ class _FeedView extends StatelessWidget {
               parent: AlwaysScrollableScrollPhysics(),
             ),
             padding: EdgeInsets.zero,
-            itemCount: provider.posts.length,
-            itemBuilder: (_, i) => PostCard(post: provider.posts[i]),
+            itemCount: listLength,
+            itemBuilder: (context, index) {
+              if (index == 0) {
+                return const _TopComposeBar();
+              }
+              
+              if (isEmpty) {
+                return Padding(
+                  padding: const EdgeInsets.only(top: 80),
+                  child: isFollowing
+                      ? const _EmptyState(
+                          icon: Icons.person_add_outlined,
+                          title: 'Chưa có bài viết',
+                          subtitle: 'Theo dõi mọi người để xem bài viết của họ tại đây',
+                        )
+                      : const _EmptyState(
+                          icon: Icons.chat_bubble_outline_rounded,
+                          title: 'Chưa có gì ở đây',
+                          subtitle: 'Hãy khám phá và theo dõi những người thú vị',
+                        ),
+                );
+              }
+              
+              return PostCard(post: posts[index - 1]);
+            },
           ),
         );
       },
+    );
+  }
+}
+
+// ─── Top Compose Bar ──────────────────────────────────────────────────────────
+
+class _TopComposeBar extends StatelessWidget {
+  const _TopComposeBar();
+
+  @override
+  Widget build(BuildContext context) {
+    final userData = context.watch<AuthProvider>().currentUserData;
+    final username = userData?['username'] ?? 'user';
+    final avatarUrl = userData?['avatar_url'];
+
+    return GestureDetector(
+      onTap: () {
+        HapticFeedback.lightImpact();
+        WriteSheet.show(context);
+      },
+      behavior: HitTestBehavior.opaque,
+      child: Container(
+        decoration: const BoxDecoration(
+          color: AppColors.surface,
+          border: Border(bottom: BorderSide(color: AppColors.divider, width: 1)),
+        ),
+        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 16),
+        child: Row(
+          children: [
+            // Left column: Avatar
+            Container(
+              width: 36,
+              height: 36,
+              decoration: BoxDecoration(
+                shape: BoxShape.circle,
+                color: AppColors.inputFill,
+                border: Border.all(color: AppColors.border, width: 0.5),
+              ),
+              child: ClipOval(
+                child: (avatarUrl != null && avatarUrl.isNotEmpty)
+                    ? Image.network(
+                        avatarUrl,
+                        fit: BoxFit.cover,
+                        errorBuilder: (_, __, ___) => _buildFallback(username),
+                      )
+                    : _buildFallback(username),
+              ),
+            ),
+            const SizedBox(width: 12),
+            // Middle: Placeholder Text
+            const Expanded(
+              child: Text(
+                'Có gì mới?',
+                style: TextStyle(
+                  color: AppColors.textTertiary,
+                  fontSize: 14,
+                  fontWeight: FontWeight.w400,
+                  letterSpacing: -0.1,
+                ),
+              ),
+            ),
+            // Right: Muted Post button
+            Container(
+              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 6),
+              decoration: BoxDecoration(
+                color: AppColors.inputFill,
+                borderRadius: BorderRadius.circular(16),
+              ),
+              child: const Text(
+                'Đăng',
+                style: TextStyle(
+                  color: AppColors.textSecondary,
+                  fontWeight: FontWeight.w600,
+                  fontSize: 13,
+                ),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildFallback(String username) {
+    return Image.network(
+      'https://api.dicebear.com/7.x/avataaars/png?seed=$username',
+      fit: BoxFit.cover,
+      errorBuilder: (_, __, ___) => Center(
+        child: Text(
+          username.isNotEmpty ? username[0].toUpperCase() : '?',
+          style: const TextStyle(
+            fontWeight: FontWeight.w700,
+            color: AppColors.textSecondary,
+            fontSize: 14,
+          ),
+        ),
+      ),
     );
   }
 }
