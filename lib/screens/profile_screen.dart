@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
+import '../models/post_model.dart';
 import '../providers/auth_provider.dart';
 import '../providers/user_provider.dart';
 import '../theme/app_colors.dart';
@@ -10,10 +11,14 @@ class ProfileScreen extends StatefulWidget {
     super.key,
     required this.currentUsername,
     required this.currentNickname,
+    this.viewingUserId,
+    this.isActive = false,
   });
 
   final String currentUsername;
   final String currentNickname;
+  final String? viewingUserId;
+  final bool isActive;
 
   @override
   State<ProfileScreen> createState() => _ProfileScreenState();
@@ -22,6 +27,9 @@ class ProfileScreen extends StatefulWidget {
 class _ProfileScreenState extends State<ProfileScreen>
     with SingleTickerProviderStateMixin {
   late TabController _tabController;
+  Map<String, dynamic>? _localUserData;
+  List<PostModel> _localUserPosts = [];
+  bool _localIsLoading = false;
 
   @override
   void initState() {
@@ -32,10 +40,44 @@ class _ProfileScreenState extends State<ProfileScreen>
     });
   }
 
-  void _fetchProfile() {
-    final uid = context.read<AuthProvider>().currentUserData?['firebase_uid'];
-    if (uid != null) {
-      context.read<UserProvider>().fetchProfile(uid, viewerUid: uid);
+  @override
+  void didUpdateWidget(covariant ProfileScreen oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (widget.isActive != oldWidget.isActive && widget.isActive) {
+      _fetchProfile();
+    }
+  }
+
+  void _fetchProfile() async {
+    final viewerUid = context.read<AuthProvider>().currentUserData?['firebase_uid'];
+    final targetUid = widget.viewingUserId ?? viewerUid;
+    if (targetUid == null) return;
+
+    if (mounted) {
+      setState(() {
+        _localIsLoading = true;
+      });
+    }
+
+    try {
+      final userProvider = context.read<UserProvider>();
+      final data = await userProvider.getProfileDataOnly(targetUid, viewerUid: viewerUid);
+      final posts = await userProvider.getUserPostsOnly(targetUid, viewerUid: viewerUid);
+
+      if (mounted) {
+        setState(() {
+          _localUserData = data;
+          _localUserPosts = posts;
+        });
+      }
+    } catch (e) {
+      print('Lỗi _fetchProfile: $e');
+    } finally {
+      if (mounted) {
+        setState(() {
+          _localIsLoading = false;
+        });
+      }
     }
   }
 
@@ -68,7 +110,10 @@ class _ProfileScreenState extends State<ProfileScreen>
                   nickname: nameCtrl.text,
                   bio: bioCtrl.text,
                 );
-            if (ok && context.mounted) Navigator.pop(context);
+            if (ok && context.mounted) {
+              Navigator.pop(context);
+              _fetchProfile();
+            }
           }
         },
       ),
@@ -77,76 +122,112 @@ class _ProfileScreenState extends State<ProfileScreen>
 
   @override
   Widget build(BuildContext context) {
-    final userProvider = context.watch<UserProvider>();
-    final userData = userProvider.userData;
-    final stats = userData?['stats'] ?? {};
+    final stats = _localUserData?['stats'] ?? {};
+    
+    final loggedInUser = context.watch<AuthProvider>().currentUserData;
+    final loggedInUid = loggedInUser?['firebase_uid'];
+    final loggedInId = loggedInUser?['id']?.toString();
+    final isMe = widget.viewingUserId == null || 
+                 widget.viewingUserId == loggedInUid || 
+                 widget.viewingUserId == loggedInId;
 
-    return RefreshIndicator(
-      onRefresh: () async => _fetchProfile(),
-      color: AppColors.textPrimary,
-      child: NestedScrollView(
-        headerSliverBuilder: (context, innerBoxIsScrolled) {
-          return [
-            SliverToBoxAdapter(
-              child: _ProfileHeader(
-                userData: userData,
-                currentUsername: widget.currentUsername,
-                currentNickname: widget.currentNickname,
-                stats: stats,
-                isLoading: userProvider.isLoading,
-                onEditTap: () => _showEditSheet(userData),
-                onPickAvatar: () async {
-                  final uid = context
-                      .read<AuthProvider>()
-                      .currentUserData?['firebase_uid'];
-                  if (uid != null) {
-                    await context
-                        .read<UserProvider>()
-                        .pickAndUploadAvatar(uid);
-                  }
-                },
-              ),
-            ),
-            SliverPersistentHeader(
-              pinned: true,
-              delegate: _TabDelegate(
-                TabBar(
-                  controller: _tabController,
-                  indicatorColor: AppColors.textPrimary,
-                  indicatorSize: TabBarIndicatorSize.tab,
-                  indicatorWeight: 1.5,
-                  labelColor: AppColors.textPrimary,
-                  unselectedLabelColor: AppColors.textSecondary,
-                  labelStyle: const TextStyle(
-                    fontWeight: FontWeight.w700,
-                    fontSize: 14,
-                  ),
-                  unselectedLabelStyle: const TextStyle(
-                    fontWeight: FontWeight.w500,
-                    fontSize: 14,
-                  ),
-                  tabs: const [
-                    Tab(text: 'Threads'),
-                    Tab(text: 'Trả lời'),
-                  ],
+    if (widget.viewingUserId == null && loggedInUid != null && _localUserData == null && !_localIsLoading) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted) _fetchProfile();
+      });
+    }
+
+    return Scaffold(
+      backgroundColor: AppColors.surface,
+      appBar: Navigator.canPop(context)
+          ? AppBar(
+              backgroundColor: AppColors.surface,
+              elevation: 0,
+              scrolledUnderElevation: 0,
+              leading: IconButton(
+                icon: const Icon(
+                  Icons.arrow_back_ios_new_rounded,
+                  color: AppColors.textPrimary,
+                  size: 20,
                 ),
+                onPressed: () => Navigator.pop(context),
               ),
+            )
+          : null,
+      body: SafeArea(
+        child: RefreshIndicator(
+          onRefresh: () async => _fetchProfile(),
+          color: AppColors.textPrimary,
+          child: NestedScrollView(
+            headerSliverBuilder: (context, innerBoxIsScrolled) {
+              return [
+                SliverToBoxAdapter(
+                  child: _ProfileHeader(
+                    userData: _localUserData,
+                    currentUsername: widget.currentUsername,
+                    currentNickname: widget.currentNickname,
+                    stats: stats,
+                    isLoading: _localIsLoading,
+                    isMe: isMe,
+                    onEditTap: () => _showEditSheet(_localUserData),
+                    onPickAvatar: () async {
+                      final uid = context
+                          .read<AuthProvider>()
+                          .currentUserData?['firebase_uid'];
+                      if (uid != null) {
+                        final ok = await context
+                            .read<UserProvider>()
+                            .pickAndUploadAvatar(uid);
+                        if (ok && mounted) {
+                          _fetchProfile();
+                        }
+                      }
+                    },
+                    onRefresh: _fetchProfile,
+                  ),
+                ),
+                SliverPersistentHeader(
+                  pinned: true,
+                  delegate: _TabDelegate(
+                    TabBar(
+                      controller: _tabController,
+                      indicatorColor: AppColors.textPrimary,
+                      indicatorSize: TabBarIndicatorSize.tab,
+                      indicatorWeight: 1.5,
+                      labelColor: AppColors.textPrimary,
+                      unselectedLabelColor: AppColors.textSecondary,
+                      labelStyle: const TextStyle(
+                        fontWeight: FontWeight.w700,
+                        fontSize: 14,
+                      ),
+                      unselectedLabelStyle: const TextStyle(
+                        fontWeight: FontWeight.w500,
+                        fontSize: 14,
+                      ),
+                      tabs: const [
+                        Tab(text: 'Threads'),
+                        Tab(text: 'Trả lời'),
+                      ],
+                    ),
+                  ),
+                ),
+              ];
+            },
+            body: TabBarView(
+              controller: _tabController,
+              children: [
+                _buildPostsList(),
+                const _EmptyReplies(),
+              ],
             ),
-          ];
-        },
-        body: TabBarView(
-          controller: _tabController,
-          children: [
-            _buildPostsList(userProvider),
-            const _EmptyReplies(),
-          ],
+          ),
         ),
       ),
     );
   }
 
-  Widget _buildPostsList(UserProvider provider) {
-    if (provider.isLoading && provider.userPosts.isEmpty) {
+  Widget _buildPostsList() {
+    if (_localIsLoading && _localUserPosts.isEmpty) {
       return const Center(
         child: SizedBox(
           width: 24,
@@ -156,7 +237,7 @@ class _ProfileScreenState extends State<ProfileScreen>
       );
     }
 
-    if (provider.userPosts.isEmpty) {
+    if (_localUserPosts.isEmpty) {
       return Center(
         child: Column(
           mainAxisAlignment: MainAxisAlignment.center,
@@ -179,20 +260,25 @@ class _ProfileScreenState extends State<ProfileScreen>
     return ListView.builder(
       padding: EdgeInsets.zero,
       physics: const BouncingScrollPhysics(),
-      itemCount: provider.userPosts.length,
-      itemBuilder: (context, index) => PostCard(post: provider.userPosts[index]),
+      itemCount: _localUserPosts.length,
+      itemBuilder: (context, index) => PostCard(
+        post: _localUserPosts[index],
+        parentProfileUserId: _localUserData?['id']?.toString(),
+      ),
     );
   }
 }
 
-class _ProfileHeader extends StatelessWidget {
+class _ProfileHeader extends StatefulWidget {
   final Map<String, dynamic>? userData;
   final String currentUsername;
   final String currentNickname;
   final Map stats;
   final bool isLoading;
+  final bool isMe;
   final VoidCallback onEditTap;
   final VoidCallback onPickAvatar;
+  final VoidCallback? onRefresh;
 
   const _ProfileHeader({
     required this.userData,
@@ -200,15 +286,58 @@ class _ProfileHeader extends StatelessWidget {
     required this.currentNickname,
     required this.stats,
     required this.isLoading,
+    required this.isMe,
     required this.onEditTap,
     required this.onPickAvatar,
+    this.onRefresh,
   });
 
   @override
+  State<_ProfileHeader> createState() => _ProfileHeaderState();
+}
+
+class _ProfileHeaderState extends State<_ProfileHeader> {
+  bool _isFollowing = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _isFollowing = widget.userData?['is_following'] ?? false;
+  }
+
+  @override
+  void didUpdateWidget(covariant _ProfileHeader oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (widget.userData?['is_following'] != oldWidget.userData?['is_following']) {
+      _isFollowing = widget.userData?['is_following'] ?? false;
+    }
+  }
+
+  void _showFollowersFollowingSheet(BuildContext context, int initialTabIndex) {
+    final userId = widget.userData?['id']?.toString() ?? widget.userData?['firebase_uid']?.toString();
+    if (userId == null) return;
+
+    showModalBottomSheet(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: Colors.transparent,
+      builder: (context) => _FollowersFollowingSheet(
+        userId: userId,
+        initialIndex: initialTabIndex,
+        currentUsername: widget.currentUsername,
+      ),
+    ).then((_) {
+      if (mounted) {
+        widget.onRefresh?.call();
+      }
+    });
+  }
+
+  @override
   Widget build(BuildContext context) {
-    final bio = userData?['bio'] as String?;
-    final followers = stats['followers'] ?? 0;
-    final following = stats['following'] ?? 0;
+    final bio = widget.userData?['bio'] as String?;
+    final followers = widget.stats['followers'] ?? 0;
+    final following = widget.stats['following'] ?? 0;
 
     return Padding(
       padding: const EdgeInsets.fromLTRB(20, 24, 20, 8),
@@ -223,7 +352,7 @@ class _ProfileHeader extends StatelessWidget {
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
                     Text(
-                      userData?['username'] ?? currentNickname,
+                      widget.userData?['username'] ?? widget.currentNickname,
                       style: const TextStyle(
                         fontSize: 26,
                         fontWeight: FontWeight.w800,
@@ -235,7 +364,7 @@ class _ProfileHeader extends StatelessWidget {
                     Row(
                       children: [
                         Text(
-                          currentUsername,
+                          widget.currentUsername,
                           style: const TextStyle(
                             fontSize: 15,
                             fontWeight: FontWeight.w500,
@@ -272,10 +401,11 @@ class _ProfileHeader extends StatelessWidget {
               ),
               // Avatar
               GestureDetector(
-                onTap: isLoading ? null : onPickAvatar,
+                onTap: (widget.isMe && !widget.isLoading) ? widget.onPickAvatar : null,
                 child: _ProfileAvatar(
-                  url: userData?['avatar_url'],
-                  isLoading: isLoading,
+                  url: widget.userData?['avatar_url'],
+                  isLoading: widget.isLoading,
+                  isMe: widget.isMe,
                 ),
               ),
             ],
@@ -300,8 +430,17 @@ class _ProfileHeader extends StatelessWidget {
           Row(
             children: [
               _StatItem(
-                value: _formatCount(followers),
+                value: _formatCount(() {
+                  final wasFollowing = widget.userData?['is_following'] ?? false;
+                  if (wasFollowing && !_isFollowing) {
+                    return followers - 1 >= 0 ? followers - 1 : 0;
+                  } else if (!wasFollowing && _isFollowing) {
+                    return followers + 1;
+                  }
+                  return followers;
+                }()),
                 label: 'người theo dõi',
+                onTap: () => _showFollowersFollowingSheet(context, 0),
               ),
               Container(
                 width: 1,
@@ -312,6 +451,7 @@ class _ProfileHeader extends StatelessWidget {
               _StatItem(
                 value: _formatCount(following),
                 label: 'đang theo dõi',
+                onTap: () => _showFollowersFollowingSheet(context, 1),
               ),
             ],
           ),
@@ -319,25 +459,105 @@ class _ProfileHeader extends StatelessWidget {
           const SizedBox(height: 20),
 
           // Action buttons
-          Row(
-            children: [
-              Expanded(
-                child: _ProfileButton(
-                  label: 'Chỉnh sửa',
-                  icon: Icons.edit_outlined,
-                  onTap: onEditTap,
+          if (widget.isMe)
+            Row(
+              children: [
+                Expanded(
+                  child: _ProfileButton(
+                    label: 'Chỉnh sửa',
+                    icon: Icons.edit_outlined,
+                    onTap: widget.onEditTap,
+                  ),
                 ),
-              ),
-              const SizedBox(width: 10),
-              Expanded(
-                child: _ProfileButton(
-                  label: 'Chia sẻ',
-                  icon: Icons.ios_share_rounded,
-                  onTap: () {},
+                const SizedBox(width: 10),
+                Expanded(
+                  child: _ProfileButton(
+                    label: 'Chia sẻ',
+                    icon: Icons.ios_share_rounded,
+                    onTap: () {},
+                  ),
                 ),
-              ),
-            ],
-          ),
+              ],
+            )
+          else
+            Row(
+              children: [
+                Expanded(
+                  child: GestureDetector(
+                    onTap: () async {
+                      // Optimistic UI state toggle
+                      setState(() {
+                        _isFollowing = !_isFollowing;
+                      });
+
+                      final loggedInUser = context.read<AuthProvider>().currentUserData;
+                      final followerUid = loggedInUser?['firebase_uid'];
+                      final targetId = widget.userData?['id'];
+
+                      if (followerUid != null && targetId != null) {
+                        final userProvider = context.read<UserProvider>();
+                        bool success;
+                        if (_isFollowing) {
+                          success = await userProvider.followUser(
+                            followerUid: followerUid,
+                            followingId: targetId,
+                          );
+                        } else {
+                          success = await userProvider.unfollowUser(
+                            followerUid: followerUid,
+                            followingId: targetId,
+                          );
+                        }
+
+                        // Revert if API request failed
+                        if (!success && mounted) {
+                          setState(() {
+                            _isFollowing = !_isFollowing;
+                          });
+                          ScaffoldMessenger.of(context).showSnackBar(
+                            const SnackBar(
+                              content: Text('Thao tác thất bại. Vui lòng thử lại.'),
+                              backgroundColor: Colors.redAccent,
+                            ),
+                          );
+                        }
+                      }
+                    },
+                    child: Container(
+                      height: 40,
+                      decoration: BoxDecoration(
+                        color: _isFollowing ? AppColors.surface : AppColors.textPrimary,
+                        borderRadius: BorderRadius.circular(10),
+                        border: Border.all(
+                          color: _isFollowing ? AppColors.border : Colors.transparent,
+                          width: 0.8,
+                        ),
+                      ),
+                      child: Center(
+                        child: Text(
+                          _isFollowing ? 'Đang theo dõi' : 'Theo dõi',
+                          style: TextStyle(
+                            fontSize: 13,
+                            fontWeight: FontWeight.w700,
+                            color: _isFollowing ? AppColors.textPrimary : AppColors.surface,
+                          ),
+                        ),
+                      ),
+                    ),
+                  ),
+                ),
+                const SizedBox(width: 10),
+                Expanded(
+                  child: _ProfileButton(
+                    label: 'Nhắc đến',
+                    icon: Icons.alternate_email_rounded,
+                    onTap: () {
+                      // Optional mention logic
+                    },
+                  ),
+                ),
+              ],
+            ),
         ],
       ),
     );
@@ -353,8 +573,9 @@ class _ProfileHeader extends StatelessWidget {
 class _ProfileAvatar extends StatelessWidget {
   final String? url;
   final bool isLoading;
+  final bool isMe;
 
-  const _ProfileAvatar({this.url, required this.isLoading});
+  const _ProfileAvatar({this.url, required this.isLoading, required this.isMe});
 
   @override
   Widget build(BuildContext context) {
@@ -398,7 +619,7 @@ class _ProfileAvatar extends StatelessWidget {
                       ),
           ),
         ),
-        if (!isLoading)
+        if (isMe && !isLoading)
           Positioned(
             bottom: 0,
             right: 0,
@@ -425,32 +646,37 @@ class _ProfileAvatar extends StatelessWidget {
 class _StatItem extends StatelessWidget {
   final String value;
   final String label;
+  final VoidCallback? onTap;
 
-  const _StatItem({required this.value, required this.label});
+  const _StatItem({required this.value, required this.label, this.onTap});
 
   @override
   Widget build(BuildContext context) {
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Text(
-          value,
-          style: const TextStyle(
-            fontSize: 18,
-            fontWeight: FontWeight.w800,
-            color: AppColors.textPrimary,
-            letterSpacing: -0.3,
+    return GestureDetector(
+      onTap: onTap,
+      behavior: HitTestBehavior.opaque,
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(
+            value,
+            style: const TextStyle(
+              fontSize: 18,
+              fontWeight: FontWeight.w800,
+              color: AppColors.textPrimary,
+              letterSpacing: -0.3,
+            ),
           ),
-        ),
-        Text(
-          label,
-          style: const TextStyle(
-            fontSize: 13,
-            color: AppColors.textSecondary,
-            fontWeight: FontWeight.w400,
+          Text(
+            label,
+            style: const TextStyle(
+              fontSize: 13,
+              color: AppColors.textSecondary,
+              fontWeight: FontWeight.w400,
+            ),
           ),
-        ),
-      ],
+        ],
+      ),
     );
   }
 }
@@ -694,6 +920,247 @@ class _EditField extends StatelessWidget {
           ),
         ),
       ],
+    );
+  }
+}
+
+class _FollowersFollowingSheet extends StatefulWidget {
+  final String userId;
+  final int initialIndex;
+  final String currentUsername;
+
+  const _FollowersFollowingSheet({
+    required this.userId,
+    required this.initialIndex,
+    required this.currentUsername,
+  });
+
+  @override
+  State<_FollowersFollowingSheet> createState() => _FollowersFollowingSheetState();
+}
+
+class _FollowersFollowingSheetState extends State<_FollowersFollowingSheet>
+    with SingleTickerProviderStateMixin {
+  late TabController _tabController;
+  List<Map<String, dynamic>> _followers = [];
+  List<Map<String, dynamic>> _following = [];
+  bool _isLoadingFollowers = true;
+  bool _isLoadingFollowing = true;
+
+  @override
+  void initState() {
+    super.initState();
+    _tabController = TabController(
+      length: 2,
+      vsync: this,
+      initialIndex: widget.initialIndex,
+    );
+    _loadData();
+  }
+
+  void _loadData() async {
+    final userProvider = context.read<UserProvider>();
+    
+    // Fetch followers
+    userProvider.getUserFollowers(widget.userId).then((list) {
+      if (mounted) {
+        setState(() {
+          _followers = list;
+          _isLoadingFollowers = false;
+        });
+      }
+    });
+
+    // Fetch following
+    userProvider.getUserFollowing(widget.userId).then((list) {
+      if (mounted) {
+        setState(() {
+          _following = list;
+          _isLoadingFollowing = false;
+        });
+      }
+    });
+  }
+
+  @override
+  void dispose() {
+    _tabController.dispose();
+    super.dispose();
+  }
+
+  void _navigateToUserProfile(Map<String, dynamic> userMap) {
+    Navigator.pop(context); // Close bottom sheet
+    
+    final loggedInUser = context.read<AuthProvider>().currentUserData;
+    final loggedInUid = loggedInUser?['firebase_uid'];
+    
+    final isMe = userMap['username'] == loggedInUser?['username'] || 
+                 userMap['id']?.toString() == loggedInUser?['id']?.toString();
+
+    Navigator.push(
+      context,
+      MaterialPageRoute(
+        builder: (_) => ProfileScreen(
+          currentUsername: userMap['username'] ?? '',
+          currentNickname: userMap['nickname'] ?? userMap['username'] ?? '',
+          viewingUserId: isMe ? loggedInUid : userMap['id']?.toString() ?? userMap['firebase_uid']?.toString(),
+        ),
+      ),
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      height: MediaQuery.of(context).size.height * 0.75,
+      decoration: const BoxDecoration(
+        color: AppColors.surface,
+        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+      ),
+      child: Column(
+        children: [
+          // Drag handle
+          const SizedBox(height: 12),
+          Center(
+            child: Container(
+              width: 36,
+              height: 4,
+              decoration: BoxDecoration(
+                color: AppColors.border,
+                borderRadius: BorderRadius.circular(2),
+              ),
+            ),
+          ),
+          const SizedBox(height: 8),
+          
+          // TabBar
+          TabBar(
+            controller: _tabController,
+            indicatorColor: AppColors.textPrimary,
+            indicatorSize: TabBarIndicatorSize.tab,
+            indicatorWeight: 1.5,
+            labelColor: AppColors.textPrimary,
+            unselectedLabelColor: AppColors.textSecondary,
+            labelStyle: const TextStyle(
+              fontWeight: FontWeight.w700,
+              fontSize: 15,
+            ),
+            unselectedLabelStyle: const TextStyle(
+              fontWeight: FontWeight.w500,
+              fontSize: 15,
+            ),
+            tabs: const [
+              Tab(text: 'Người theo dõi'),
+              Tab(text: 'Đang theo dõi'),
+            ],
+          ),
+          Container(height: 0.5, color: AppColors.border),
+
+          // TabBarView
+          Expanded(
+            child: TabBarView(
+              controller: _tabController,
+              children: [
+                _buildUserList(_followers, _isLoadingFollowers, 'Chưa có người theo dõi nào'),
+                _buildUserList(_following, _isLoadingFollowing, 'Chưa theo dõi ai'),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildUserList(List<Map<String, dynamic>> users, bool isLoading, String emptyMessage) {
+    if (isLoading) {
+      return const Center(
+        child: CircularProgressIndicator(color: Colors.black, strokeWidth: 2),
+      );
+    }
+
+    if (users.isEmpty) {
+      return Center(
+        child: Column(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            const Icon(Icons.people_outline_rounded, size: 48, color: AppColors.textTertiary),
+            const SizedBox(height: 12),
+            Text(
+              emptyMessage,
+              style: const TextStyle(
+                color: AppColors.textSecondary,
+                fontSize: 14,
+                fontWeight: FontWeight.w500,
+              ),
+            ),
+          ],
+        ),
+      );
+    }
+
+    return ListView.builder(
+      padding: const EdgeInsets.symmetric(vertical: 8),
+      itemCount: users.length,
+      itemBuilder: (context, index) {
+        final u = users[index];
+        final username = u['username'] ?? 'user';
+        final nickname = u['nickname'] ?? username;
+        final avatarUrl = u['avatarUrl'] ?? u['avatar_url'];
+
+        return ListTile(
+          onTap: () => _navigateToUserProfile(u),
+          leading: Container(
+            width: 40,
+            height: 40,
+            decoration: BoxDecoration(
+              shape: BoxShape.circle,
+              color: AppColors.inputFill,
+              border: Border.all(color: AppColors.border, width: 0.5),
+            ),
+            child: ClipOval(
+              child: (avatarUrl != null && avatarUrl.isNotEmpty)
+                  ? Image.network(
+                      avatarUrl,
+                      fit: BoxFit.cover,
+                      errorBuilder: (_, __, ___) => _buildFallback(username),
+                    )
+                  : _buildFallback(username),
+            ),
+          ),
+          title: Text(
+            username,
+            style: const TextStyle(
+              fontWeight: FontWeight.bold,
+              fontSize: 14,
+              color: AppColors.textPrimary,
+            ),
+          ),
+          subtitle: Text(
+            nickname,
+            style: const TextStyle(
+              color: AppColors.textSecondary,
+              fontSize: 13,
+            ),
+          ),
+        );
+      },
+    );
+  }
+
+  Widget _buildFallback(String username) {
+    return Image.network(
+      'https://api.dicebear.com/7.x/avataaars/png?seed=$username',
+      fit: BoxFit.cover,
+      errorBuilder: (_, __, ___) => Center(
+        child: Text(
+          username.isNotEmpty ? username[0].toUpperCase() : '?',
+          style: const TextStyle(
+            fontWeight: FontWeight.w700,
+            color: AppColors.textSecondary,
+            fontSize: 14,
+          ),
+        ),
+      ),
     );
   }
 }

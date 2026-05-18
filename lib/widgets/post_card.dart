@@ -1,6 +1,8 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:provider/provider.dart';
 import '../models/post_model.dart';
+import '../models/user_model.dart';
 import '../models/post_media_model.dart';
 import '../providers/auth_provider.dart';
 import '../providers/home_provider.dart';
@@ -10,6 +12,7 @@ import '../theme/app_colors.dart';
 import '../theme/app_typography.dart';
 import '../utils/format_utils.dart';
 import '../screens/post_detail_screen.dart';
+import '../screens/profile_screen.dart';
 import 'video_player_widget.dart';
 
 class PostCard extends StatefulWidget {
@@ -17,10 +20,12 @@ class PostCard extends StatefulWidget {
     super.key,
     required this.post,
     this.showThreadLine = false,
+    this.parentProfileUserId,
   });
 
   final PostModel post;
   final bool showThreadLine;
+  final String? parentProfileUserId;
 
   @override
   State<PostCard> createState() => _PostCardState();
@@ -29,22 +34,26 @@ class PostCard extends StatefulWidget {
 class _PostCardState extends State<PostCard> {
   late bool isLiked;
   late int likeCount;
+  late bool isFollowing;
 
   @override
   void initState() {
     super.initState();
     isLiked = widget.post.isLiked;
     likeCount = widget.post.likeCount;
+    isFollowing = widget.post.isFollowing;
   }
 
   @override
   void didUpdateWidget(PostCard oldWidget) {
     super.didUpdateWidget(oldWidget);
     if (oldWidget.post.isLiked != widget.post.isLiked ||
-        oldWidget.post.likeCount != widget.post.likeCount) {
+        oldWidget.post.likeCount != widget.post.likeCount ||
+        oldWidget.post.isFollowing != widget.post.isFollowing) {
       setState(() {
         isLiked = widget.post.isLiked;
         likeCount = widget.post.likeCount;
+        isFollowing = widget.post.isFollowing;
       });
     }
   }
@@ -79,6 +88,199 @@ class _PostCardState extends State<PostCard> {
     }
   }
 
+  void _navigateToProfile(BuildContext context, UserModel? author) {
+    if (author == null) return;
+
+    if (widget.parentProfileUserId != null && 
+        author.id.toString() == widget.parentProfileUserId) {
+      HapticFeedback.lightImpact();
+      return;
+    }
+    
+    final loggedInUser = context.read<AuthProvider>().currentUserData;
+    final loggedInUid = loggedInUser?['firebase_uid'];
+    
+    final isMe = author.username == loggedInUser?['username'] || 
+                 author.id.toString() == loggedInUser?['id']?.toString();
+                 
+    Navigator.push(
+      context,
+      MaterialPageRoute(
+        builder: (_) => ProfileScreen(
+          currentUsername: author.username,
+          currentNickname: author.nickname ?? author.username,
+          viewingUserId: isMe ? loggedInUid : author.id.toString(),
+        ),
+      ),
+    );
+  }
+
+  void _handleFollowAndNavigate(BuildContext context, UserModel author) async {
+    final authProvider = context.read<AuthProvider>();
+    final userProvider = context.read<UserProvider>();
+    final homeProvider = context.read<HomeProvider>();
+
+    final followerUid = authProvider.currentUserData?['firebase_uid'];
+    if (followerUid == null) return;
+
+    // 1. Cập nhật local state ngay lập tức
+    setState(() {
+      isFollowing = true;
+    });
+
+    // 2. Chờ API follow hoàn thành để cơ sở dữ liệu được cập nhật trước khi trang profile load
+    await userProvider.followUser(followerUid: followerUid, followingId: author.id);
+
+    // Kích hoạt làm mới feed "Đang theo dõi"
+    homeProvider.fetchFollowingFeed();
+
+    // 3. Điều hướng tới trang cá nhân
+    final loggedInUser = authProvider.currentUserData;
+    final loggedInUid = loggedInUser?['firebase_uid'];
+    final isMe = author.username == loggedInUser?['username'] || 
+                 author.id.toString() == loggedInUser?['id']?.toString();
+
+    if (!context.mounted) return;
+    Navigator.push(
+      context,
+      MaterialPageRoute(
+        builder: (_) => ProfileScreen(
+          currentUsername: author.username,
+          currentNickname: author.nickname ?? author.username,
+          viewingUserId: isMe ? loggedInUid : author.id.toString(),
+        ),
+      ),
+    );
+  }
+
+  void _showFollowConfirmation(BuildContext context, UserModel author) {
+    showDialog(
+      context: context,
+      builder: (BuildContext dialogContext) {
+        return Dialog(
+          backgroundColor: Colors.transparent,
+          insetPadding: const EdgeInsets.symmetric(horizontal: 40),
+          child: Container(
+            decoration: BoxDecoration(
+              color: AppColors.surface,
+              borderRadius: BorderRadius.circular(16),
+              boxShadow: [
+                BoxShadow(
+                  color: Colors.black.withOpacity(0.1),
+                  blurRadius: 10,
+                  spreadRadius: 2,
+                  offset: const Offset(0, 4),
+                ),
+              ],
+            ),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                const SizedBox(height: 24),
+                Container(
+                  width: 48,
+                  height: 48,
+                  decoration: const BoxDecoration(
+                    color: AppColors.inputFill,
+                    shape: BoxShape.circle,
+                  ),
+                  child: const Center(
+                    child: Icon(
+                      Icons.person_add_rounded,
+                      color: AppColors.textPrimary,
+                      size: 24,
+                    ),
+                  ),
+                ),
+                const SizedBox(height: 16),
+                Padding(
+                  padding: const EdgeInsets.symmetric(horizontal: 20),
+                  child: Text(
+                    'Theo dõi @${author.username}?',
+                    style: const TextStyle(
+                      fontSize: 17,
+                      fontWeight: FontWeight.w800,
+                      color: AppColors.textPrimary,
+                      letterSpacing: -0.3,
+                    ),
+                    textAlign: TextAlign.center,
+                  ),
+                ),
+                const SizedBox(height: 8),
+                Padding(
+                  padding: const EdgeInsets.symmetric(horizontal: 24),
+                  child: Text(
+                    'Bạn sẽ thấy các bài viết của @${author.username} xuất hiện trên bảng tin của mình.',
+                    style: const TextStyle(
+                      fontSize: 13,
+                      height: 1.4,
+                      fontWeight: FontWeight.w400,
+                      color: AppColors.textSecondary,
+                    ),
+                    textAlign: TextAlign.center,
+                  ),
+                ),
+                const SizedBox(height: 24),
+                Container(
+                  height: 0.5,
+                  color: AppColors.border,
+                ),
+                Row(
+                  children: [
+                    Expanded(
+                      child: GestureDetector(
+                        onTap: () => Navigator.pop(dialogContext),
+                        behavior: HitTestBehavior.opaque,
+                        child: Container(
+                          height: 46,
+                          alignment: Alignment.center,
+                          child: const Text(
+                            'Hủy',
+                            style: TextStyle(
+                              fontSize: 15,
+                              fontWeight: FontWeight.w600,
+                              color: AppColors.textSecondary,
+                            ),
+                          ),
+                        ),
+                      ),
+                    ),
+                    Container(
+                      width: 0.5,
+                      height: 46,
+                      color: AppColors.border,
+                    ),
+                    Expanded(
+                      child: GestureDetector(
+                        onTap: () {
+                          Navigator.pop(dialogContext); // Đóng dialog trước
+                          _handleFollowAndNavigate(context, author); // Bắt đầu follow và điều hướng
+                        },
+                        behavior: HitTestBehavior.opaque,
+                        child: Container(
+                          height: 46,
+                          alignment: Alignment.center,
+                          child: const Text(
+                            'Theo dõi',
+                            style: TextStyle(
+                              fontSize: 15,
+                              fontWeight: FontWeight.w800,
+                              color: Colors.blueAccent,
+                            ),
+                          ),
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+              ],
+            ),
+          ),
+        );
+      },
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     final post = widget.post;
@@ -101,10 +303,60 @@ class _PostCardState extends State<PostCard> {
             children: [
               // Left column: Avatar + Thread Line
               SizedBox(
-                width: 40,
+                width: 46,
                 child: Column(
                   children: [
-                    _buildAvatar(author?.avatarUrl),
+                    (() {
+                      final loggedInUser = context.read<AuthProvider>().currentUserData;
+                      final isMe = author?.username == loggedInUser?['username'] || 
+                                   author?.id.toString() == loggedInUser?['id']?.toString();
+                      
+                      return GestureDetector(
+                        onTap: () => _navigateToProfile(context, author),
+                        child: SizedBox(
+                          width: 46,
+                          height: 46,
+                          child: Stack(
+                            clipBehavior: Clip.none,
+                            children: [
+                              Positioned(
+                                left: 0,
+                                top: 0,
+                                child: _buildAvatar(author?.avatarUrl),
+                              ),
+                              if (!isMe && !isFollowing && author != null)
+                                Positioned(
+                                  right: 0,
+                                  bottom: 0,
+                                  child: GestureDetector(
+                                    behavior: HitTestBehavior.opaque,
+                                    onTap: () => _showFollowConfirmation(context, author),
+                                    child: Container(
+                                      width: 18,
+                                      height: 18,
+                                      decoration: BoxDecoration(
+                                        color: Colors.black,
+                                        shape: BoxShape.circle,
+                                        border: Border.all(
+                                          color: AppColors.surface,
+                                          width: 1.5,
+                                        ),
+                                      ),
+                                      child: const Center(
+                                        child: Icon(
+                                          Icons.add,
+                                          color: Colors.white,
+                                          size: 11,
+                                        ),
+                                      ),
+                                    ),
+                                  ),
+                                ),
+                            ],
+                          ),
+                        ),
+                      );
+                    }()),
                     if (widget.showThreadLine)
                       Expanded(
                         child: Container(
@@ -126,10 +378,13 @@ class _PostCardState extends State<PostCard> {
                     Row(
                       children: [
                         Expanded(
-                          child: Text(
-                            author?.username ?? 'Anonymous',
-                            style: AppTypography.titleMedium.copyWith(
-                              fontWeight: FontWeight.w600,
+                          child: GestureDetector(
+                            onTap: () => _navigateToProfile(context, author),
+                            child: Text(
+                              author?.username ?? 'Anonymous',
+                              style: AppTypography.titleMedium.copyWith(
+                                fontWeight: FontWeight.w600,
+                              ),
                             ),
                           ),
                         ),

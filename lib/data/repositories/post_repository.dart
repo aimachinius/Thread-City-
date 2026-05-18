@@ -4,7 +4,7 @@ import '../../models/post_model.dart';
 import '../../core/config/app_config.dart';
 
 abstract class IPostRepository {
-  Future<List<PostModel>> getFeed({String? firebaseUid, String? cursor});
+  Future<List<PostModel>> getFeed({String? firebaseUid, String? cursor, bool following = false});
   Future<void> createPost({
     required String firebaseUid, 
     required String content, 
@@ -97,11 +97,17 @@ class PostRepository implements IPostRepository {
   }
 
   @override
-  Future<List<PostModel>> getFeed({String? firebaseUid, String? cursor}) async {
+  Future<List<PostModel>> getFeed({String? firebaseUid, String? cursor, bool following = false}) async {
     try {
-      final url = firebaseUid != null 
-          ? '$baseUrl/posts?firebase_uid=$firebaseUid'
-          : '$baseUrl/posts';
+      String url = '$baseUrl/posts';
+      final params = <String>[];
+      if (firebaseUid != null) params.add('firebase_uid=$firebaseUid');
+      if (following) params.add('following=true');
+      if (cursor != null) params.add('cursor=$cursor');
+      
+      if (params.isNotEmpty) {
+        url += '?${params.join('&')}';
+      }
           
       final response = await http.get(Uri.parse(url));
 
