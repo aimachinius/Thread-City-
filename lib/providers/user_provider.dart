@@ -53,6 +53,44 @@ class UserProvider extends ChangeNotifier {
     }
   }
 
+  Future<Map<String, dynamic>?> getProfileDataOnly(String firebaseUid, {String? viewerUid}) async {
+    try {
+      return await _userRepository.getUserProfile(firebaseUid, viewerUid: viewerUid);
+    } catch (e) {
+      print('Lỗi getProfileDataOnly: $e');
+      return null;
+    }
+  }
+
+  Future<List<PostModel>> getUserPostsOnly(String firebaseUid, {String? viewerUid}) async {
+    try {
+      return await _postRepository.getPostsByUserUid(firebaseUid, viewerUid: viewerUid);
+    } catch (e) {
+      print('Lỗi getUserPostsOnly: $e');
+      return [];
+    }
+  }
+
+  Future<bool> followUser({required String followerUid, required int followingId}) async {
+    try {
+      await _userRepository.followUser(followerUid: followerUid, followingId: followingId);
+      return true;
+    } catch (e) {
+      print('Lỗi followUser: $e');
+      return false;
+    }
+  }
+
+  Future<bool> unfollowUser({required String followerUid, required int followingId}) async {
+    try {
+      await _userRepository.unfollowUser(followerUid: followerUid, followingId: followingId);
+      return true;
+    } catch (e) {
+      print('Lỗi unfollowUser: $e');
+      return false;
+    }
+  }
+
   Future<bool> updateProfile({
     required String firebaseUid,
     String? bio,
@@ -129,6 +167,24 @@ class UserProvider extends ChangeNotifier {
     _userData = null;
     _userPosts = [];
     notifyListeners();
+  }
+
+  Future<List<Map<String, dynamic>>> getUserFollowers(String userId) async {
+    try {
+      return await _userRepository.getUserFollowers(userId);
+    } catch (e) {
+      print('Lỗi getUserFollowers: $e');
+      return [];
+    }
+  }
+
+  Future<List<Map<String, dynamic>>> getUserFollowing(String userId) async {
+    try {
+      return await _userRepository.getUserFollowing(userId);
+    } catch (e) {
+      print('Lỗi getUserFollowing: $e');
+      return [];
+    }
   }
 
   /// Cập nhật trạng thái thả tim cục bộ trên danh sách bài đăng của User

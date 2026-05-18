@@ -7,10 +7,38 @@ const prisma = new PrismaClient();
 // Lấy danh sách bài viết (Feed)
 export const getFeed = async (req: Request, res: Response) => {
     const firebase_uid = req.query.firebase_uid as string | undefined;
+    const following = req.query.following === "true";
 
     try {
+        let followedUserIds: number[] = [];
+        let viewerId: number | undefined = undefined;
+
+        if (firebase_uid) {
+            const viewer = await prisma.user.findUnique({
+                where: { firebase_uid }
+            });
+            if (viewer) {
+                viewerId = viewer.id;
+                const follows = await prisma.follow.findMany({
+                    where: { follower_id: viewer.id },
+                    select: { following_id: true }
+                });
+                followedUserIds = follows.map(f => f.following_id);
+            }
+        }
+
+        if (following && firebase_uid) {
+            // Nếu không follow ai, trả về danh sách trống ngay lập tức
+            if (followedUserIds.length === 0) {
+                return res.json([]);
+            }
+        }
+
         const posts = await prisma.post.findMany({
-            where: { parent_id: null },
+            where: { 
+                parent_id: null,
+                user_id: following ? { in: followedUserIds } : undefined
+            },
             include: {
                 user: { select: { id: true, username: true, avatar_url: true } },
                 counts: true,
@@ -27,7 +55,8 @@ export const getFeed = async (req: Request, res: Response) => {
         const formattedPosts = posts.map((post: any) => ({
             ...post,
             isLiked: post.likes ? post.likes.length > 0 : false,
-            likes: undefined
+            likes: undefined,
+            isFollowing: followedUserIds.includes(post.user_id)
         }));
 
         return res.json(formattedPosts);
@@ -256,8 +285,9 @@ export const getPostsByUserUid = async (req: Request, res: Response) => {
     const viewer_uid = req.query.viewer_uid as string | undefined;
 
     try {
+        const isNumeric = /^\d+$/.test(firebase_uid);
         const user = await prisma.user.findUnique({
-            where: { firebase_uid }
+            where: isNumeric ? { id: parseInt(firebase_uid, 10) } : { firebase_uid }
         });
 
         if (!user) return res.status(404).json({ message: "User not found" });
