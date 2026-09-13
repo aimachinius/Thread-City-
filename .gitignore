@@ -102,4 +102,4 @@ secrets.json
 **/mysql_data/
 **/.env*
 **/*.log
-
+sketch.txt

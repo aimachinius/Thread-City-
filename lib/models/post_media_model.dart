@@ -1,3 +1,5 @@
+import '../utils/enum_utils.dart';
+
 enum MediaType { image, video }
 
 class PostMediaModel {
@@ -19,15 +21,15 @@ class PostMediaModel {
 
   factory PostMediaModel.fromMap(Map<String, dynamic> map) {
     return PostMediaModel(
-      id: map['id'],
-      postId: map['post_id'],
-      mediaUrl: map['media_url'],
+      id: map['id'] ?? 0,
+      postId: map['post_id'] ?? 0,
+      mediaUrl: map['media_url'] ?? '',
       mediaType: MediaType.values.firstWhere(
-        (e) => e.name == (map['media_type'] ?? 'image'),
+        (e) => enumName(e) == (map['media_type'] ?? 'image'),
         orElse: () => MediaType.image,
       ),
       orderIndex: map['order_index'] ?? 0,
-      createdAt: DateTime.parse(map['created_at']),
+      createdAt: DateTime.tryParse((map['created_at'] ?? '').toString()) ?? DateTime.now(),
     );
   }
 }

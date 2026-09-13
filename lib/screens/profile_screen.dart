@@ -1,10 +1,15 @@
 import 'package:flutter/material.dart';
+import 'package:google_fonts/google_fonts.dart';
 import 'package:provider/provider.dart';
 import '../models/post_model.dart';
 import '../providers/auth_provider.dart';
+import '../providers/message_provider.dart';
 import '../providers/user_provider.dart';
 import '../theme/app_colors.dart';
+import '../widgets/bouncy_tap.dart';
 import '../widgets/post_card.dart';
+import '../widgets/custom_cached_image.dart';
+import 'chat_detail_screen.dart';
 
 class ProfileScreen extends StatefulWidget {
   const ProfileScreen({
@@ -21,15 +26,28 @@ class ProfileScreen extends StatefulWidget {
   final bool isActive;
 
   @override
-  State<ProfileScreen> createState() => _ProfileScreenState();
+  ProfileScreenState createState() => ProfileScreenState();
 }
 
-class _ProfileScreenState extends State<ProfileScreen>
+class ProfileScreenState extends State<ProfileScreen>
     with SingleTickerProviderStateMixin {
   late TabController _tabController;
   Map<String, dynamic>? _localUserData;
   List<PostModel> _localUserPosts = [];
+  List<PostModel> _localUserReposts = [];
   bool _localIsLoading = false;
+
+  final GlobalKey<RefreshIndicatorState> refreshKey =
+      GlobalKey<RefreshIndicatorState>();
+
+  Future<void> refresh() async {
+    if (refreshKey.currentState != null) {
+      refreshKey.currentState?.show();
+    } else {
+      _fetchProfile();
+    }
+  }
+
 
   @override
   void initState() {
@@ -49,7 +67,8 @@ class _ProfileScreenState extends State<ProfileScreen>
   }
 
   void _fetchProfile() async {
-    final viewerUid = context.read<AuthProvider>().currentUserData?['firebase_uid'];
+    final viewerUid =
+        context.read<AuthProvider>().currentUserData?['firebase_uid'];
     final targetUid = widget.viewingUserId ?? viewerUid;
     if (targetUid == null) return;
 
@@ -61,17 +80,30 @@ class _ProfileScreenState extends State<ProfileScreen>
 
     try {
       final userProvider = context.read<UserProvider>();
-      final data = await userProvider.getProfileDataOnly(targetUid, viewerUid: viewerUid);
-      final posts = await userProvider.getUserPostsOnly(targetUid, viewerUid: viewerUid);
+      // TECH-07: Gọi 3 API song song thay vì tuần tự → nhanh hơn
+      final results = await Future.wait([
+        userProvider.getProfileDataOnly(targetUid, viewerUid: viewerUid),
+        userProvider.getUserPostsOnly(targetUid, viewerUid: viewerUid),
+        userProvider.getUserRepostsOnly(targetUid, viewerUid: viewerUid),
+      ]);
 
       if (mounted) {
         setState(() {
-          _localUserData = data;
-          _localUserPosts = posts;
+          _localUserData = results[0] as Map<String, dynamic>?;
+          _localUserPosts = results[1] as List<PostModel>;
+          _localUserReposts = results[2] as List<PostModel>;
         });
       }
     } catch (e) {
-      print('Lỗi _fetchProfile: $e');
+      debugPrint('Lỗi _fetchProfile: $e');
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('Không thể tải trang cá nhân. Hãy kéo xuống để thử lại.'),
+            duration: Duration(seconds: 3),
+          ),
+        );
+      }
     } finally {
       if (mounted) {
         setState(() {
@@ -81,84 +113,101 @@ class _ProfileScreenState extends State<ProfileScreen>
     }
   }
 
+  void _showEditSheet(Map<String, dynamic>? userData) {
+    final bioController = TextEditingController(text: userData?['bio'] ?? '');
+    final nameController = TextEditingController(
+        text: userData?['nickname'] ?? userData?['username'] ?? '');
+
+    showModalBottomSheet(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: Colors.transparent,
+      builder: (_) => _EditProfileSheet(
+        bioController: bioController,
+        nameController: nameController,
+        onSave: () async {
+          final uid =
+              context.read<AuthProvider>().currentUserData?['firebase_uid'];
+          if (uid == null) return;
+          final userProvider = context.read<UserProvider>();
+          final ok = await userProvider.updateProfile(
+            firebaseUid: uid,
+            bio: bioController.text.trim(),
+            nickname: nameController.text.trim(),
+          );
+          if (!mounted) return;
+          if (ok) {
+            Navigator.pop(context);
+            _fetchProfile();
+          } else {
+            ScaffoldMessenger.of(context).showSnackBar(
+              const SnackBar(content: Text('Không thể lưu thay đổi')),
+            );
+          }
+        },
+      ),
+    ).whenComplete(() {
+      bioController.dispose();
+      nameController.dispose();
+    });
+  }
+
   @override
   void dispose() {
     _tabController.dispose();
     super.dispose();
   }
 
-  void _showEditSheet(Map<String, dynamic>? userData) {
-    if (userData == null) return;
-    final bioCtrl = TextEditingController(text: userData['bio'] ?? '');
-    final nameCtrl = TextEditingController(
-      text: userData['username'] ?? widget.currentNickname,
-    );
-
-    showModalBottomSheet(
-      context: context,
-      isScrollControlled: true,
-      backgroundColor: Colors.transparent,
-      builder: (context) => _EditProfileSheet(
-        bioController: bioCtrl,
-        nameController: nameCtrl,
-        onSave: () async {
-          final uid =
-              context.read<AuthProvider>().currentUserData?['firebase_uid'];
-          if (uid != null) {
-            final ok = await context.read<UserProvider>().updateProfile(
-                  firebaseUid: uid,
-                  nickname: nameCtrl.text,
-                  bio: bioCtrl.text,
-                );
-            if (ok && context.mounted) {
-              Navigator.pop(context);
-              _fetchProfile();
-            }
-          }
-        },
-      ),
-    );
-  }
-
   @override
   Widget build(BuildContext context) {
-    final stats = _localUserData?['stats'] ?? {};
-    
-    final loggedInUser = context.watch<AuthProvider>().currentUserData;
+    final loggedInUser = context.read<AuthProvider>().currentUserData;
     final loggedInUid = loggedInUser?['firebase_uid'];
     final loggedInId = loggedInUser?['id']?.toString();
-    final isMe = widget.viewingUserId == null || 
-                 widget.viewingUserId == loggedInUid || 
-                 widget.viewingUserId == loggedInId;
+    final isMe = widget.viewingUserId == null ||
+        widget.viewingUserId == loggedInUid ||
+        widget.viewingUserId == loggedInId;
 
-    if (widget.viewingUserId == null && loggedInUid != null && _localUserData == null && !_localIsLoading) {
-      WidgetsBinding.instance.addPostFrameCallback((_) {
-        if (mounted) _fetchProfile();
-      });
-    }
+    final stats = {
+      'followers': _localUserData?['stats']?['followers'] ??
+          _localUserData?['followers'] ??
+          _localUserData?['followers_count'] ??
+          0,
+      'following': _localUserData?['stats']?['following'] ??
+          _localUserData?['following'] ??
+          _localUserData?['following_count'] ??
+          0,
+    };
+
+    // BUG-02 FIX: Đã xóa gọi _fetchProfile() từ build() để tránh vòng lặp vô tận.
+    // _fetchProfile() chỉ được gọi từ initState() và didUpdateWidget().
 
     return Scaffold(
-      backgroundColor: AppColors.surface,
+      backgroundColor: AppColors.cream,
       appBar: Navigator.canPop(context)
           ? AppBar(
-              backgroundColor: AppColors.surface,
+              backgroundColor: AppColors.cream,
               elevation: 0,
               scrolledUnderElevation: 0,
-              leading: IconButton(
-                icon: const Icon(
+              leading: BouncyTap(
+                onTap: () => Navigator.pop(context),
+                child: const Icon(
                   Icons.arrow_back_ios_new_rounded,
-                  color: AppColors.textPrimary,
+                  color: AppColors.ink,
                   size: 20,
                 ),
-                onPressed: () => Navigator.pop(context),
               ),
             )
           : null,
       body: SafeArea(
         child: RefreshIndicator(
+          key: refreshKey,
           onRefresh: () async => _fetchProfile(),
-          color: AppColors.textPrimary,
+          color: AppColors.coral,
+          backgroundColor: Colors.white,
           child: NestedScrollView(
+            physics: const BouncingScrollPhysics(
+              parent: AlwaysScrollableScrollPhysics(),
+            ),
             headerSliverBuilder: (context, innerBoxIsScrolled) {
               return [
                 SliverToBoxAdapter(
@@ -191,22 +240,22 @@ class _ProfileScreenState extends State<ProfileScreen>
                   delegate: _TabDelegate(
                     TabBar(
                       controller: _tabController,
-                      indicatorColor: AppColors.textPrimary,
+                      indicatorColor: AppColors.coral,
                       indicatorSize: TabBarIndicatorSize.tab,
-                      indicatorWeight: 1.5,
-                      labelColor: AppColors.textPrimary,
-                      unselectedLabelColor: AppColors.textSecondary,
-                      labelStyle: const TextStyle(
+                      indicatorWeight: 3,
+                      labelColor: AppColors.ink,
+                      unselectedLabelColor: AppColors.inkSoft,
+                      labelStyle: GoogleFonts.quicksand(
                         fontWeight: FontWeight.w700,
-                        fontSize: 14,
+                        fontSize: 13.5,
                       ),
-                      unselectedLabelStyle: const TextStyle(
-                        fontWeight: FontWeight.w500,
-                        fontSize: 14,
+                      unselectedLabelStyle: GoogleFonts.quicksand(
+                        fontWeight: FontWeight.w700,
+                        fontSize: 13.5,
                       ),
                       tabs: const [
                         Tab(text: 'Threads'),
-                        Tab(text: 'Trả lời'),
+                        Tab(text: 'Đăng lại'),
                       ],
                     ),
                   ),
@@ -217,7 +266,7 @@ class _ProfileScreenState extends State<ProfileScreen>
               controller: _tabController,
               children: [
                 _buildPostsList(),
-                const _EmptyReplies(),
+                _buildRepostsList(),
               ],
             ),
           ),
@@ -232,7 +281,10 @@ class _ProfileScreenState extends State<ProfileScreen>
         child: SizedBox(
           width: 24,
           height: 24,
-          child: CircularProgressIndicator(strokeWidth: 2, color: AppColors.textPrimary),
+          child: CircularProgressIndicator(
+            strokeWidth: 2.5,
+            color: AppColors.coral,
+          ),
         ),
       );
     }
@@ -242,14 +294,31 @@ class _ProfileScreenState extends State<ProfileScreen>
         child: Column(
           mainAxisAlignment: MainAxisAlignment.center,
           children: [
-            Icon(Icons.edit_note_rounded, size: 56, color: AppColors.textTertiary),
-            const SizedBox(height: 12),
+            Container(
+              width: 72,
+              height: 72,
+              decoration: const BoxDecoration(
+                gradient: AppColors.peachMintGradient,
+                borderRadius: BorderRadius.only(
+                  topLeft: Radius.circular(30),
+                  topRight: Radius.circular(30),
+                  bottomRight: Radius.circular(30),
+                  bottomLeft: Radius.circular(10),
+                ),
+              ),
+              child: const Icon(
+                Icons.edit_note_rounded,
+                size: 34,
+                color: AppColors.ink,
+              ),
+            ),
+            const SizedBox(height: 14),
             Text(
               'Chưa có bài viết nào',
-              style: TextStyle(
-                color: AppColors.textSecondary,
+              style: GoogleFonts.quicksand(
+                color: AppColors.ink,
                 fontSize: 15,
-                fontWeight: FontWeight.w500,
+                fontWeight: FontWeight.w700,
               ),
             ),
           ],
@@ -258,13 +327,79 @@ class _ProfileScreenState extends State<ProfileScreen>
     }
 
     return ListView.builder(
-      padding: EdgeInsets.zero,
-      physics: const BouncingScrollPhysics(),
+      padding: const EdgeInsets.only(top: 8, bottom: 96),
       itemCount: _localUserPosts.length,
-      itemBuilder: (context, index) => PostCard(
-        post: _localUserPosts[index],
-        parentProfileUserId: _localUserData?['id']?.toString(),
-      ),
+      physics: const BouncingScrollPhysics(),
+      itemBuilder: (context, index) {
+        return PostCard(
+          post: _localUserPosts[index],
+          parentProfileUserId: widget.viewingUserId,
+        );
+      },
+    );
+  }
+
+  Widget _buildRepostsList() {
+    if (_localIsLoading && _localUserReposts.isEmpty) {
+      return const Center(
+        child: SizedBox(
+          width: 24,
+          height: 24,
+          child: CircularProgressIndicator(
+            strokeWidth: 2.5,
+            color: AppColors.coral,
+          ),
+        ),
+      );
+    }
+
+    if (_localUserReposts.isEmpty) {
+      return Center(
+        child: Column(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            Container(
+              width: 72,
+              height: 72,
+              decoration: const BoxDecoration(
+                gradient: AppColors.peachMintGradient,
+                borderRadius: BorderRadius.only(
+                  topLeft: Radius.circular(30),
+                  topRight: Radius.circular(30),
+                  bottomRight: Radius.circular(30),
+                  bottomLeft: Radius.circular(10),
+                ),
+              ),
+              child: const Icon(
+                Icons.repeat_rounded,
+                size: 34,
+                color: AppColors.ink,
+              ),
+            ),
+            const SizedBox(height: 14),
+            Text(
+              'Chưa đăng lại bài viết nào',
+              style: GoogleFonts.quicksand(
+                color: AppColors.ink,
+                fontSize: 15,
+                fontWeight: FontWeight.w700,
+              ),
+            ),
+          ],
+        ),
+      );
+    }
+
+    return ListView.builder(
+      padding: const EdgeInsets.only(top: 8, bottom: 96),
+      itemCount: _localUserReposts.length,
+      physics: const BouncingScrollPhysics(),
+      itemBuilder: (context, index) {
+        return PostCard(
+          post: _localUserReposts[index],
+          parentProfileUserId: widget.viewingUserId,
+        );
+      },
     );
   }
 }
@@ -298,6 +433,7 @@ class _ProfileHeader extends StatefulWidget {
 
 class _ProfileHeaderState extends State<_ProfileHeader> {
   bool _isFollowing = false;
+  bool _isOpeningChat = false;
 
   @override
   void initState() {
@@ -308,13 +444,15 @@ class _ProfileHeaderState extends State<_ProfileHeader> {
   @override
   void didUpdateWidget(covariant _ProfileHeader oldWidget) {
     super.didUpdateWidget(oldWidget);
-    if (widget.userData?['is_following'] != oldWidget.userData?['is_following']) {
+    if (widget.userData?['is_following'] !=
+        oldWidget.userData?['is_following']) {
       _isFollowing = widget.userData?['is_following'] ?? false;
     }
   }
 
   void _showFollowersFollowingSheet(BuildContext context, int initialTabIndex) {
-    final userId = widget.userData?['id']?.toString() ?? widget.userData?['firebase_uid']?.toString();
+    final userId = widget.userData?['id']?.toString() ??
+        widget.userData?['firebase_uid']?.toString();
     if (userId == null) return;
 
     showModalBottomSheet(
@@ -338,100 +476,75 @@ class _ProfileHeaderState extends State<_ProfileHeader> {
     final bio = widget.userData?['bio'] as String?;
     final followers = widget.stats['followers'] ?? 0;
     final following = widget.stats['following'] ?? 0;
+    final displayName = widget.userData?['nickname'] ??
+        widget.userData?['username'] ??
+        widget.currentNickname;
+    final handle = widget.userData?['username'] ?? widget.currentUsername;
+    final avatarLetter =
+        displayName.isNotEmpty ? displayName[0].toUpperCase() : '?';
 
     return Padding(
-      padding: const EdgeInsets.fromLTRB(20, 24, 20, 8),
+      padding: const EdgeInsets.fromLTRB(20, 10, 20, 14),
       child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
+        crossAxisAlignment: CrossAxisAlignment.center,
         children: [
-          Row(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(
-                      widget.userData?['username'] ?? widget.currentNickname,
-                      style: const TextStyle(
-                        fontSize: 26,
-                        fontWeight: FontWeight.w800,
-                        letterSpacing: -0.6,
-                        height: 1.1,
-                      ),
-                    ),
-                    const SizedBox(height: 6),
-                    Row(
-                      children: [
-                        Text(
-                          widget.currentUsername,
-                          style: const TextStyle(
-                            fontSize: 15,
-                            fontWeight: FontWeight.w500,
-                            color: AppColors.textSecondary,
-                          ),
-                        ),
-                        const SizedBox(width: 8),
-                        Container(
-                          padding: const EdgeInsets.symmetric(
-                            horizontal: 8,
-                            vertical: 3,
-                          ),
-                          decoration: BoxDecoration(
-                            color: AppColors.inputFill,
-                            borderRadius: BorderRadius.circular(8),
-                            border: Border.all(
-                              color: AppColors.border,
-                              width: 0.5,
-                            ),
-                          ),
-                          child: const Text(
-                            'threads.net',
-                            style: TextStyle(
-                              fontSize: 11,
-                              fontWeight: FontWeight.w500,
-                              color: AppColors.textTertiary,
-                            ),
-                          ),
-                        ),
-                      ],
-                    ),
-                  ],
-                ),
-              ),
-              // Avatar
-              GestureDetector(
-                onTap: (widget.isMe && !widget.isLoading) ? widget.onPickAvatar : null,
-                child: _ProfileAvatar(
-                  url: widget.userData?['avatar_url'],
-                  isLoading: widget.isLoading,
-                  isMe: widget.isMe,
-                ),
-              ),
-            ],
+          // ── Centered Squircle Avatar ──────────────────────────────────
+          BouncyTap(
+            onTap: (widget.isMe && !widget.isLoading)
+                ? widget.onPickAvatar
+                : null,
+            child: _ProfileAvatar(
+              url: widget.userData?['avatar_url'],
+              letter: avatarLetter,
+              isLoading: widget.isLoading,
+              isMe: widget.isMe,
+            ),
+          ),
+          const SizedBox(height: 12),
+
+          // ── Display Name & Handle ────────────────────────────────────
+          Text(
+            displayName,
+            style: GoogleFonts.quicksand(
+              fontSize: 17,
+              fontWeight: FontWeight.w700,
+              color: AppColors.ink,
+            ),
+          ),
+          const SizedBox(height: 2),
+          Text(
+            handle.startsWith('@') ? handle : '@$handle',
+            style: GoogleFonts.nunito(
+              fontSize: 12.5,
+              fontWeight: FontWeight.w500,
+              color: AppColors.inkSoft,
+            ),
           ),
 
-          // Bio
+          // ── Bio (if present) ─────────────────────────────────────────
           if (bio != null && bio.isNotEmpty) ...[
-            const SizedBox(height: 16),
+            const SizedBox(height: 8),
             Text(
               bio,
-              style: const TextStyle(
-                fontSize: 15,
-                height: 1.5,
-                color: AppColors.textPrimary,
+              textAlign: TextAlign.center,
+              style: GoogleFonts.nunito(
+                fontSize: 13.5,
+                color: AppColors.ink,
+                height: 1.4,
               ),
             ),
           ],
 
-          const SizedBox(height: 20),
+          const SizedBox(height: 14),
 
-          // Stats row
+          // ── Stats Row ────────────────────────────────────────────────
           Row(
+            mainAxisAlignment: MainAxisAlignment.center,
             children: [
               _StatItem(
                 value: _formatCount(() {
-                  final wasFollowing = widget.userData?['is_following'] ?? false;
+                  final wasFollowing =
+                      widget.userData?['is_following'] ?? false;
                   if (wasFollowing && !_isFollowing) {
                     return followers - 1 >= 0 ? followers - 1 : 0;
                   } else if (!wasFollowing && _isFollowing) {
@@ -442,12 +555,7 @@ class _ProfileHeaderState extends State<_ProfileHeader> {
                 label: 'người theo dõi',
                 onTap: () => _showFollowersFollowingSheet(context, 0),
               ),
-              Container(
-                width: 1,
-                height: 20,
-                margin: const EdgeInsets.symmetric(horizontal: 16),
-                color: AppColors.divider,
-              ),
+              const SizedBox(width: 26),
               _StatItem(
                 value: _formatCount(following),
                 label: 'đang theo dõi',
@@ -456,25 +564,57 @@ class _ProfileHeaderState extends State<_ProfileHeader> {
             ],
           ),
 
-          const SizedBox(height: 20),
+          const SizedBox(height: 16),
 
-          // Action buttons
+          // ── Action Buttons ───────────────────────────────────────────
           if (widget.isMe)
             Row(
               children: [
                 Expanded(
-                  child: _ProfileButton(
-                    label: 'Chỉnh sửa',
-                    icon: Icons.edit_outlined,
+                  child: BouncyTap(
                     onTap: widget.onEditTap,
+                    child: Container(
+                      padding: const EdgeInsets.symmetric(vertical: 11),
+                      decoration: BoxDecoration(
+                        gradient: AppColors.primaryGradient,
+                        borderRadius: BorderRadius.circular(16),
+                        boxShadow: AppColors.shadowBtn,
+                      ),
+                      child: Center(
+                        child: Text(
+                          'Chỉnh sửa',
+                          style: GoogleFonts.quicksand(
+                            fontSize: 12.5,
+                            fontWeight: FontWeight.w700,
+                            color: Colors.white,
+                          ),
+                        ),
+                      ),
+                    ),
                   ),
                 ),
                 const SizedBox(width: 10),
                 Expanded(
-                  child: _ProfileButton(
-                    label: 'Chia sẻ',
-                    icon: Icons.ios_share_rounded,
+                  child: BouncyTap(
                     onTap: () {},
+                    child: Container(
+                      padding: const EdgeInsets.symmetric(vertical: 11),
+                      decoration: BoxDecoration(
+                        color: Colors.white,
+                        borderRadius: BorderRadius.circular(16),
+                        boxShadow: AppColors.shadowSoft,
+                      ),
+                      child: Center(
+                        child: Text(
+                          'Chia sẻ',
+                          style: GoogleFonts.quicksand(
+                            fontSize: 12.5,
+                            fontWeight: FontWeight.w700,
+                            color: AppColors.ink,
+                          ),
+                        ),
+                      ),
+                    ),
                   ),
                 ),
               ],
@@ -483,16 +623,16 @@ class _ProfileHeaderState extends State<_ProfileHeader> {
             Row(
               children: [
                 Expanded(
-                  child: GestureDetector(
+                  child: BouncyTap(
                     onTap: () async {
-                      // Optimistic UI state toggle
                       setState(() {
                         _isFollowing = !_isFollowing;
                       });
-
-                      final loggedInUser = context.read<AuthProvider>().currentUserData;
+                      final loggedInUser =
+                          context.read<AuthProvider>().currentUserData;
                       final followerUid = loggedInUser?['firebase_uid'];
                       final targetId = widget.userData?['id'];
+                      final messenger = ScaffoldMessenger.of(context);
 
                       if (followerUid != null && targetId != null) {
                         final userProvider = context.read<UserProvider>();
@@ -509,14 +649,15 @@ class _ProfileHeaderState extends State<_ProfileHeader> {
                           );
                         }
 
-                        // Revert if API request failed
-                        if (!success && mounted) {
+                        if (!mounted) return;
+                        if (!success) {
                           setState(() {
                             _isFollowing = !_isFollowing;
                           });
-                          ScaffoldMessenger.of(context).showSnackBar(
+                          messenger.showSnackBar(
                             const SnackBar(
-                              content: Text('Thao tác thất bại. Vui lòng thử lại.'),
+                              content:
+                                  Text('Thao tác thất bại. Vui lòng thử lại.'),
                               backgroundColor: Colors.redAccent,
                             ),
                           );
@@ -524,22 +665,23 @@ class _ProfileHeaderState extends State<_ProfileHeader> {
                       }
                     },
                     child: Container(
-                      height: 40,
+                      padding: const EdgeInsets.symmetric(vertical: 11),
                       decoration: BoxDecoration(
-                        color: _isFollowing ? AppColors.surface : AppColors.textPrimary,
-                        borderRadius: BorderRadius.circular(10),
-                        border: Border.all(
-                          color: _isFollowing ? AppColors.border : Colors.transparent,
-                          width: 0.8,
-                        ),
+                        gradient:
+                            _isFollowing ? null : AppColors.primaryGradient,
+                        color: _isFollowing ? Colors.white : null,
+                        borderRadius: BorderRadius.circular(16),
+                        boxShadow: _isFollowing
+                            ? AppColors.shadowSoft
+                            : AppColors.shadowBtn,
                       ),
                       child: Center(
                         child: Text(
                           _isFollowing ? 'Đang theo dõi' : 'Theo dõi',
-                          style: TextStyle(
-                            fontSize: 13,
+                          style: GoogleFonts.quicksand(
+                            fontSize: 12.5,
                             fontWeight: FontWeight.w700,
-                            color: _isFollowing ? AppColors.textPrimary : AppColors.surface,
+                            color: _isFollowing ? AppColors.ink : Colors.white,
                           ),
                         ),
                       ),
@@ -548,12 +690,89 @@ class _ProfileHeaderState extends State<_ProfileHeader> {
                 ),
                 const SizedBox(width: 10),
                 Expanded(
-                  child: _ProfileButton(
-                    label: 'Nhắc đến',
-                    icon: Icons.alternate_email_rounded,
-                    onTap: () {
-                      // Optional mention logic
-                    },
+                  child: BouncyTap(
+                    onTap: _isOpeningChat
+                        ? null
+                        : () async {
+                            final rawId = widget.userData?['id'];
+                            final partnerId = rawId is int
+                                ? rawId
+                                : int.tryParse(rawId?.toString() ?? '');
+                            final messenger = ScaffoldMessenger.of(context);
+                            final navigator = Navigator.of(context);
+                            if (partnerId == null) {
+                              messenger.showSnackBar(
+                                const SnackBar(
+                                  content: Text('Không tìm thấy thông tin người dùng'),
+                                  duration: Duration(seconds: 2),
+                                ),
+                              );
+                              return;
+                            }
+
+                            setState(() => _isOpeningChat = true);
+                            try {
+                              final conversation = await context
+                                  .read<MessageProvider>()
+                                  .createOrOpenConversation(partnerId);
+                              if (!mounted) return;
+                              if (conversation != null) {
+                                navigator.push(
+                                  MaterialPageRoute(
+                                    builder: (_) =>
+                                        ChatDetailScreen(conversation: conversation),
+                                  ),
+                                );
+                              } else {
+                                messenger.showSnackBar(
+                                  const SnackBar(
+                                    content: Text('Không thể mở cuộc trò chuyện lúc này'),
+                                    duration: Duration(seconds: 2),
+                                  ),
+                                );
+                              }
+                            } catch (e) {
+                              if (mounted) {
+                                messenger.showSnackBar(
+                                  SnackBar(
+                                    content: Text('Lỗi: $e'),
+                                    duration: const Duration(seconds: 2),
+                                  ),
+                                );
+                              }
+                            } finally {
+                              if (mounted) {
+                                setState(() => _isOpeningChat = false);
+                              }
+                            }
+                          },
+                    child: Container(
+                      padding: const EdgeInsets.symmetric(vertical: 11),
+                      decoration: BoxDecoration(
+                        color: Colors.white,
+                        borderRadius: BorderRadius.circular(16),
+                        boxShadow: AppColors.shadowSoft,
+                      ),
+                      child: Center(
+                        child: _isOpeningChat
+                            ? const SizedBox(
+                                width: 16,
+                                height: 16,
+                                child: CircularProgressIndicator(
+                                  strokeWidth: 2,
+                                  color: AppColors.ink,
+                                ),
+                              )
+                            : Text(
+                                'Nhắn tin',
+                                style: GoogleFonts.quicksand(
+                                  fontSize: 12.5,
+                                  fontWeight: FontWeight.w700,
+                                  color: AppColors.ink,
+                                ),
+                              ),
+                      ),
+                    ),
                   ),
                 ),
               ],
@@ -572,10 +791,16 @@ class _ProfileHeaderState extends State<_ProfileHeader> {
 
 class _ProfileAvatar extends StatelessWidget {
   final String? url;
+  final String letter;
   final bool isLoading;
   final bool isMe;
 
-  const _ProfileAvatar({this.url, required this.isLoading, required this.isMe});
+  const _ProfileAvatar({
+    this.url,
+    required this.letter,
+    required this.isLoading,
+    required this.isMe,
+  });
 
   @override
   Widget build(BuildContext context) {
@@ -583,14 +808,29 @@ class _ProfileAvatar extends StatelessWidget {
       clipBehavior: Clip.none,
       children: [
         Container(
-          width: 80,
-          height: 80,
+          width: 84,
+          height: 84,
           decoration: BoxDecoration(
-            shape: BoxShape.circle,
-            color: AppColors.inputFill,
-            border: Border.all(color: AppColors.border, width: 0.5),
+            borderRadius: const BorderRadius.only(
+              topLeft: Radius.circular(34),
+              topRight: Radius.circular(34),
+              bottomRight: Radius.circular(34),
+              bottomLeft: Radius.circular(12),
+            ),
+            gradient: const LinearGradient(
+              colors: [AppColors.coral, AppColors.mint],
+              begin: Alignment.topLeft,
+              end: Alignment.bottomRight,
+            ),
+            boxShadow: AppColors.shadowSoft,
           ),
-          child: ClipOval(
+          child: ClipRRect(
+            borderRadius: const BorderRadius.only(
+              topLeft: Radius.circular(34),
+              topRight: Radius.circular(34),
+              bottomRight: Radius.circular(34),
+              bottomLeft: Radius.circular(12),
+            ),
             child: isLoading
                 ? const Center(
                     child: SizedBox(
@@ -598,42 +838,42 @@ class _ProfileAvatar extends StatelessWidget {
                       height: 22,
                       child: CircularProgressIndicator(
                         strokeWidth: 2,
-                        color: AppColors.textPrimary,
+                        color: Colors.white,
                       ),
                     ),
                   )
                 : (url != null && url!.isNotEmpty)
-                    ? Image.network(
-                        url!,
+                    ? CustomCachedImage(
+                        imageUrl: url,
                         fit: BoxFit.cover,
-                        errorBuilder: (_, __, ___) => const Icon(
-                          Icons.person_rounded,
-                          color: AppColors.textSecondary,
-                          size: 40,
-                        ),
                       )
-                    : const Icon(
-                        Icons.person_rounded,
-                        color: AppColors.textSecondary,
-                        size: 40,
+                    : Center(
+                        child: Text(
+                          letter,
+                          style: GoogleFonts.quicksand(
+                            color: Colors.white,
+                            fontSize: 26,
+                            fontWeight: FontWeight.w700,
+                          ),
+                        ),
                       ),
           ),
         ),
         if (isMe && !isLoading)
           Positioned(
-            bottom: 0,
-            right: 0,
+            bottom: -4,
+            right: -4,
             child: Container(
-              width: 24,
-              height: 24,
+              width: 26,
+              height: 26,
               decoration: BoxDecoration(
-                color: AppColors.textPrimary,
+                color: AppColors.coral,
                 shape: BoxShape.circle,
-                border: Border.all(color: AppColors.surface, width: 2),
+                border: Border.all(color: AppColors.cream, width: 3),
               ),
               child: const Icon(
                 Icons.add_rounded,
-                color: AppColors.surface,
+                color: Colors.white,
                 size: 14,
               ),
             ),
@@ -652,93 +892,23 @@ class _StatItem extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return GestureDetector(
+    return BouncyTap(
       onTap: onTap,
-      behavior: HitTestBehavior.opaque,
       child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Text(
             value,
-            style: const TextStyle(
-              fontSize: 18,
-              fontWeight: FontWeight.w800,
-              color: AppColors.textPrimary,
-              letterSpacing: -0.3,
+            style: GoogleFonts.quicksand(
+              fontSize: 15,
+              fontWeight: FontWeight.w700,
+              color: AppColors.ink,
             ),
           ),
           Text(
             label,
-            style: const TextStyle(
-              fontSize: 13,
-              color: AppColors.textSecondary,
-              fontWeight: FontWeight.w400,
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-}
-
-class _ProfileButton extends StatelessWidget {
-  final String label;
-  final IconData icon;
-  final VoidCallback onTap;
-
-  const _ProfileButton({
-    required this.label,
-    required this.icon,
-    required this.onTap,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    return GestureDetector(
-      onTap: onTap,
-      child: Container(
-        height: 40,
-        decoration: BoxDecoration(
-          color: AppColors.surface,
-          borderRadius: BorderRadius.circular(10),
-          border: Border.all(color: AppColors.border, width: 0.8),
-        ),
-        child: Row(
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: [
-            Icon(icon, size: 16, color: AppColors.textPrimary),
-            const SizedBox(width: 6),
-            Text(
-              label,
-              style: const TextStyle(
-                fontSize: 13,
-                fontWeight: FontWeight.w700,
-                color: AppColors.textPrimary,
-              ),
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-}
-
-class _EmptyReplies extends StatelessWidget {
-  const _EmptyReplies();
-
-  @override
-  Widget build(BuildContext context) {
-    return const Center(
-      child: Column(
-        mainAxisAlignment: MainAxisAlignment.center,
-        children: [
-          Icon(Icons.chat_bubble_outline_rounded, size: 48, color: AppColors.textTertiary),
-          SizedBox(height: 12),
-          Text(
-            'Chưa có câu trả lời',
-            style: TextStyle(
-              color: AppColors.textSecondary,
-              fontSize: 15,
+            style: GoogleFonts.nunito(
+              fontSize: 11,
+              color: AppColors.inkSoft,
               fontWeight: FontWeight.w500,
             ),
           ),
@@ -758,12 +928,13 @@ class _TabDelegate extends SliverPersistentHeaderDelegate {
   double get maxExtent => tabBar.preferredSize.height;
 
   @override
-  Widget build(BuildContext context, double shrinkOffset, bool overlapsContent) {
+  Widget build(
+      BuildContext context, double shrinkOffset, bool overlapsContent) {
     return Container(
       decoration: const BoxDecoration(
-        color: AppColors.surface,
+        color: AppColors.cream,
         border: Border(
-          bottom: BorderSide(color: AppColors.border, width: 0.5),
+          bottom: BorderSide(color: Color(0x143D2C28), width: 1.5),
         ),
       ),
       child: tabBar,
@@ -791,39 +962,36 @@ class _EditProfileSheet extends StatelessWidget {
       padding: EdgeInsets.only(
         bottom: MediaQuery.of(context).viewInsets.bottom,
       ),
-      decoration: BoxDecoration(
-        color: AppColors.surface,
-        borderRadius: const BorderRadius.vertical(top: Radius.circular(20)),
-        border: const Border(
-          top: BorderSide(color: AppColors.border, width: 0.5),
-        ),
+      decoration: const BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.vertical(top: Radius.circular(28)),
       ),
       child: Padding(
-        padding: const EdgeInsets.all(24),
+        padding: const EdgeInsets.fromLTRB(24, 16, 24, 28),
         child: Column(
           mainAxisSize: MainAxisSize.min,
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             Center(
               child: Container(
-                width: 36,
-                height: 4,
+                width: 40,
+                height: 5,
                 decoration: BoxDecoration(
-                  color: AppColors.border,
-                  borderRadius: BorderRadius.circular(2),
+                  color: AppColors.ink.withOpacity(0.15),
+                  borderRadius: BorderRadius.circular(4),
                 ),
               ),
             ),
-            const SizedBox(height: 20),
-            const Text(
+            const SizedBox(height: 18),
+            Text(
               'Chỉnh sửa trang cá nhân',
-              style: TextStyle(
-                fontSize: 20,
-                fontWeight: FontWeight.w800,
-                letterSpacing: -0.4,
+              style: GoogleFonts.quicksand(
+                fontSize: 18,
+                fontWeight: FontWeight.w700,
+                color: AppColors.ink,
               ),
             ),
-            const SizedBox(height: 24),
+            const SizedBox(height: 20),
             _EditField(label: 'Tên hiển thị', controller: nameController),
             const SizedBox(height: 16),
             _EditField(
@@ -832,27 +1000,29 @@ class _EditProfileSheet extends StatelessWidget {
               maxLines: 3,
               hint: 'Viết gì đó về bản thân...',
             ),
-            const SizedBox(height: 28),
-            SizedBox(
-              width: double.infinity,
-              height: 50,
-              child: ElevatedButton(
-                onPressed: onSave,
-                style: ElevatedButton.styleFrom(
-                  backgroundColor: AppColors.textPrimary,
-                  foregroundColor: AppColors.surface,
-                  elevation: 0,
-                  shape: RoundedRectangleBorder(
-                    borderRadius: BorderRadius.circular(12),
-                  ),
+            const SizedBox(height: 24),
+            BouncyTap(
+              onTap: onSave,
+              child: Container(
+                width: double.infinity,
+                height: 48,
+                decoration: BoxDecoration(
+                  gradient: AppColors.primaryGradient,
+                  borderRadius: BorderRadius.circular(20),
+                  boxShadow: AppColors.shadowBtn,
                 ),
-                child: const Text(
-                  'Lưu thay đổi',
-                  style: TextStyle(fontWeight: FontWeight.w700, fontSize: 15),
+                child: Center(
+                  child: Text(
+                    'Lưu thay đổi',
+                    style: GoogleFonts.quicksand(
+                      fontWeight: FontWeight.w700,
+                      fontSize: 15,
+                      color: Colors.white,
+                    ),
+                  ),
                 ),
               ),
             ),
-            const SizedBox(height: 8),
           ],
         ),
       ),
@@ -880,42 +1050,44 @@ class _EditField extends StatelessWidget {
       children: [
         Text(
           label,
-          style: const TextStyle(
-            fontSize: 12,
-            fontWeight: FontWeight.w600,
-            color: AppColors.textSecondary,
-            letterSpacing: 0.3,
+          style: GoogleFonts.quicksand(
+            fontSize: 12.5,
+            fontWeight: FontWeight.w700,
+            color: AppColors.inkSoft,
           ),
         ),
         const SizedBox(height: 8),
         TextField(
           controller: controller,
           maxLines: maxLines,
-          style: const TextStyle(
-            fontSize: 15,
-            fontWeight: FontWeight.w500,
-            color: AppColors.textPrimary,
+          style: GoogleFonts.nunito(
+            fontSize: 14.5,
+            fontWeight: FontWeight.w600,
+            color: AppColors.ink,
           ),
           decoration: InputDecoration(
             hintText: hint,
-            hintStyle: const TextStyle(color: AppColors.textTertiary),
+            hintStyle: GoogleFonts.nunito(
+              color: AppColors.inkSoft,
+              fontSize: 14,
+            ),
             filled: true,
-            fillColor: AppColors.inputFill,
+            fillColor: AppColors.creamDeep,
             border: OutlineInputBorder(
-              borderRadius: BorderRadius.circular(12),
-              borderSide: const BorderSide(color: AppColors.border, width: 0.5),
+              borderRadius: BorderRadius.circular(16),
+              borderSide: BorderSide.none,
             ),
             enabledBorder: OutlineInputBorder(
-              borderRadius: BorderRadius.circular(12),
-              borderSide: const BorderSide(color: AppColors.border, width: 0.5),
+              borderRadius: BorderRadius.circular(16),
+              borderSide: BorderSide.none,
             ),
             focusedBorder: OutlineInputBorder(
-              borderRadius: BorderRadius.circular(12),
-              borderSide: const BorderSide(color: AppColors.textPrimary, width: 1),
+              borderRadius: BorderRadius.circular(16),
+              borderSide: const BorderSide(color: AppColors.coral, width: 1.5),
             ),
             contentPadding: const EdgeInsets.symmetric(
-              horizontal: 14,
-              vertical: 12,
+              horizontal: 16,
+              vertical: 14,
             ),
           ),
         ),
@@ -936,7 +1108,8 @@ class _FollowersFollowingSheet extends StatefulWidget {
   });
 
   @override
-  State<_FollowersFollowingSheet> createState() => _FollowersFollowingSheetState();
+  State<_FollowersFollowingSheet> createState() =>
+      _FollowersFollowingSheetState();
 }
 
 class _FollowersFollowingSheetState extends State<_FollowersFollowingSheet>
@@ -960,7 +1133,7 @@ class _FollowersFollowingSheetState extends State<_FollowersFollowingSheet>
 
   void _loadData() async {
     final userProvider = context.read<UserProvider>();
-    
+
     // Fetch followers
     userProvider.getUserFollowers(widget.userId).then((list) {
       if (mounted) {
@@ -990,12 +1163,12 @@ class _FollowersFollowingSheetState extends State<_FollowersFollowingSheet>
 
   void _navigateToUserProfile(Map<String, dynamic> userMap) {
     Navigator.pop(context); // Close bottom sheet
-    
+
     final loggedInUser = context.read<AuthProvider>().currentUserData;
     final loggedInUid = loggedInUser?['firebase_uid'];
-    
-    final isMe = userMap['username'] == loggedInUser?['username'] || 
-                 userMap['id']?.toString() == loggedInUser?['id']?.toString();
+
+    final isMe = userMap['username'] == loggedInUser?['username'] ||
+        userMap['id']?.toString() == loggedInUser?['id']?.toString();
 
     Navigator.push(
       context,
@@ -1003,7 +1176,10 @@ class _FollowersFollowingSheetState extends State<_FollowersFollowingSheet>
         builder: (_) => ProfileScreen(
           currentUsername: userMap['username'] ?? '',
           currentNickname: userMap['nickname'] ?? userMap['username'] ?? '',
-          viewingUserId: isMe ? loggedInUid : userMap['id']?.toString() ?? userMap['firebase_uid']?.toString(),
+          viewingUserId: isMe
+              ? loggedInUid
+              : userMap['id']?.toString() ??
+                  userMap['firebase_uid']?.toString(),
         ),
       ),
     );
@@ -1032,7 +1208,7 @@ class _FollowersFollowingSheetState extends State<_FollowersFollowingSheet>
             ),
           ),
           const SizedBox(height: 8),
-          
+
           // TabBar
           TabBar(
             controller: _tabController,
@@ -1061,8 +1237,10 @@ class _FollowersFollowingSheetState extends State<_FollowersFollowingSheet>
             child: TabBarView(
               controller: _tabController,
               children: [
-                _buildUserList(_followers, _isLoadingFollowers, 'Chưa có người theo dõi nào'),
-                _buildUserList(_following, _isLoadingFollowing, 'Chưa theo dõi ai'),
+                _buildUserList(_followers, _isLoadingFollowers,
+                    'Chưa có người theo dõi nào'),
+                _buildUserList(
+                    _following, _isLoadingFollowing, 'Chưa theo dõi ai'),
               ],
             ),
           ),
@@ -1071,7 +1249,8 @@ class _FollowersFollowingSheetState extends State<_FollowersFollowingSheet>
     );
   }
 
-  Widget _buildUserList(List<Map<String, dynamic>> users, bool isLoading, String emptyMessage) {
+  Widget _buildUserList(
+      List<Map<String, dynamic>> users, bool isLoading, String emptyMessage) {
     if (isLoading) {
       return const Center(
         child: CircularProgressIndicator(color: Colors.black, strokeWidth: 2),
@@ -1083,7 +1262,8 @@ class _FollowersFollowingSheetState extends State<_FollowersFollowingSheet>
         child: Column(
           mainAxisAlignment: MainAxisAlignment.center,
           children: [
-            const Icon(Icons.people_outline_rounded, size: 48, color: AppColors.textTertiary),
+            const Icon(Icons.people_outline_rounded,
+                size: 48, color: AppColors.textTertiary),
             const SizedBox(height: 12),
             Text(
               emptyMessage,
@@ -1117,14 +1297,13 @@ class _FollowersFollowingSheetState extends State<_FollowersFollowingSheet>
               color: AppColors.inputFill,
               border: Border.all(color: AppColors.border, width: 0.5),
             ),
-            child: ClipOval(
-              child: (avatarUrl != null && avatarUrl.isNotEmpty)
-                  ? Image.network(
-                      avatarUrl,
-                      fit: BoxFit.cover,
-                      errorBuilder: (_, __, ___) => _buildFallback(username),
-                    )
-                  : _buildFallback(username),
+            child: CustomCachedImage(
+              imageUrl: avatarUrl,
+              width: 40,
+              height: 40,
+              fit: BoxFit.cover,
+              isCircle: true,
+              errorWidget: _buildFallback(username),
             ),
           ),
           title: Text(
@@ -1148,18 +1327,10 @@ class _FollowersFollowingSheetState extends State<_FollowersFollowingSheet>
   }
 
   Widget _buildFallback(String username) {
-    return Image.network(
-      'https://api.dicebear.com/7.x/avataaars/png?seed=$username',
-      fit: BoxFit.cover,
-      errorBuilder: (_, __, ___) => Center(
-        child: Text(
-          username.isNotEmpty ? username[0].toUpperCase() : '?',
-          style: const TextStyle(
-            fontWeight: FontWeight.w700,
-            color: AppColors.textSecondary,
-            fontSize: 14,
-          ),
-        ),
+    return const Center(
+      child: Icon(
+        Icons.person_rounded,
+        color: AppColors.textSecondary,
       ),
     );
   }

@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
+import 'package:google_fonts/google_fonts.dart';
 import '../theme/app_colors.dart';
-import '../theme/app_typography.dart';
+import '../widgets/bouncy_tap.dart';
 
 class SearchScreen extends StatefulWidget {
   const SearchScreen({super.key});
@@ -17,20 +18,43 @@ class _SearchScreenState extends State<SearchScreen>
   late Animation<double> _fadeAnim;
 
   static const _trends = [
-    {'tag': '#Flutter', 'count': 5420, 'category': 'Tech'},
-    {'tag': '#ReactJS', 'count': 7870, 'category': 'Dev'},
-    {'tag': '#TypeScript', 'count': 4267, 'category': 'Dev'},
-    {'tag': '#WebDev', 'count': 9741, 'category': 'Design'},
-    {'tag': '#AI', 'count': 6850, 'category': 'Tech'},
-    {'tag': '#Design', 'count': 9259, 'category': 'Design'},
-    {'tag': '#Python', 'count': 8930, 'category': 'Dev'},
+    {'tag': '#Flutter', 'count': '5.4k bài viết', 'category': 'Tech'},
+    {'tag': '#ReactJS', 'count': '7.9k bài viết', 'category': 'Dev'},
+    {'tag': '#TypeScript', 'count': '4.3k bài viết', 'category': 'Dev'},
+    {'tag': '#WebDev', 'count': '9.7k bài viết', 'category': 'Design'},
+    {'tag': '#AI', 'count': '6.8k bài viết', 'category': 'Tech'},
+    {'tag': '#Design', 'count': '9.3k bài viết', 'category': 'Design'},
+    {'tag': '#Python', 'count': '8.9k bài viết', 'category': 'Dev'},
   ];
+
+  static const _rankBg = [
+    Color(0xFFFF7A5C), // Rank 1 Coral
+    Color(0xFF8B7A73), // Rank 2
+    Color(0xFF8B7A73), // Rank 3
+    Color(0xFFC7BDB6), // Rank 4
+    Color(0xFFC7BDB6), // Rank 5
+    Color(0xFFC7BDB6), // Rank 6
+    Color(0xFFC7BDB6), // Rank 7
+  ];
+
+  static const _catBg = {
+    'Tech': Color(0xFFEDE9FE),
+    'Dev': Color(0xFFDCF7EF),
+    'Design': Color(0xFFFFE3EA),
+  };
+
+  static const _catFg = {
+    'Tech': Color(0xFF7C6CF0),
+    'Dev': Color(0xFF2FAE8F),
+    'Design': Color(0xFFFF6B8B),
+  };
 
   @override
   void initState() {
     super.initState();
     _searchController = TextEditingController();
     _searchFocus = FocusNode();
+    _searchFocus.addListener(() => setState(() {}));
     _animController = AnimationController(
       vsync: this,
       duration: const Duration(milliseconds: 300),
@@ -47,56 +71,55 @@ class _SearchScreenState extends State<SearchScreen>
     super.dispose();
   }
 
-  String _formatCount(int count) {
-    if (count >= 1000) return '${(count / 1000).toStringAsFixed(1)}k';
-    return count.toString();
-  }
-
   @override
   Widget build(BuildContext context) {
     final hasQuery = _searchController.text.isNotEmpty;
+    final isFocused = _searchFocus.hasFocus;
 
     return FadeTransition(
       opacity: _fadeAnim,
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          // Search bar
+          // ── Search bar capsule ─────────────────────────────────────────
           Padding(
-            padding: const EdgeInsets.fromLTRB(16, 16, 16, 0),
-            child: Container(
-              height: 46,
+            padding: const EdgeInsets.fromLTRB(20, 8, 20, 14),
+            child: AnimatedContainer(
+              duration: const Duration(milliseconds: 200),
+              height: 48,
               decoration: BoxDecoration(
-                color: AppColors.inputFill,
-                borderRadius: BorderRadius.circular(14),
+                color: Colors.white,
+                borderRadius: BorderRadius.circular(18),
+                boxShadow: AppColors.shadowSoft,
                 border: Border.all(
-                  color: _searchFocus.hasFocus
-                      ? AppColors.primaryAccent.withOpacity(0.4)
-                      : AppColors.border,
-                  width: 0.8,
+                  color: isFocused ? AppColors.coral : Colors.transparent,
+                  width: 1.5,
                 ),
               ),
               child: Row(
                 children: [
-                  const Padding(
-                    padding: EdgeInsets.symmetric(horizontal: 14),
-                    child: Icon(
-                      Icons.search_rounded,
-                      size: 20,
-                      color: AppColors.textSecondary,
-                    ),
+                  const SizedBox(width: 14),
+                  Icon(
+                    Icons.search_rounded,
+                    size: 20,
+                    color: isFocused ? AppColors.coral : AppColors.inkSoft,
                   ),
+                  const SizedBox(width: 10),
                   Expanded(
                     child: TextField(
                       controller: _searchController,
                       focusNode: _searchFocus,
-                      style: AppTypography.bodyMedium.copyWith(
-                        color: AppColors.textPrimary,
+                      style: GoogleFonts.nunito(
+                        fontSize: 14,
+                        color: AppColors.ink,
+                        fontWeight: FontWeight.w600,
                       ),
                       decoration: InputDecoration(
-                        hintText: 'Tìm kiếm bài viết, người dùng...',
-                        hintStyle: AppTypography.bodyMedium.copyWith(
-                          color: AppColors.textTertiary,
+                        hintText: 'Tìm kiếm trên Threads...',
+                        hintStyle: GoogleFonts.nunito(
+                          fontSize: 13.5,
+                          color: AppColors.inkSoft,
+                          fontWeight: FontWeight.w500,
                         ),
                         border: InputBorder.none,
                         isDense: true,
@@ -106,61 +129,176 @@ class _SearchScreenState extends State<SearchScreen>
                     ),
                   ),
                   if (hasQuery)
-                    GestureDetector(
+                    BouncyTap(
                       onTap: () {
                         _searchController.clear();
                         setState(() {});
                       },
-                      child: const Padding(
-                        padding: EdgeInsets.symmetric(horizontal: 14),
-                        child: Icon(
-                          Icons.cancel_rounded,
-                          size: 18,
-                          color: AppColors.textSecondary,
+                      child: Padding(
+                        padding: const EdgeInsets.symmetric(horizontal: 12),
+                        child: Container(
+                          width: 22,
+                          height: 22,
+                          decoration: BoxDecoration(
+                            color: AppColors.inkSoft.withOpacity(0.18),
+                            shape: BoxShape.circle,
+                          ),
+                          child: const Icon(
+                            Icons.close_rounded,
+                            size: 14,
+                            color: AppColors.ink,
+                          ),
                         ),
                       ),
                     ),
+                  const SizedBox(width: 6),
                 ],
               ),
             ),
           ),
 
-          const SizedBox(height: 28),
-
           if (!hasQuery) ...[
-            // Section header
+            // ── Section Heading ──────────────────────────────────────────
             Padding(
-              padding: const EdgeInsets.fromLTRB(16, 0, 16, 16),
-              child: Text(
-                'Xu hướng',
-                style: AppTypography.headlineSmall.copyWith(
-                  color: AppColors.textPrimary,
-                  fontWeight: FontWeight.w700,
-                  letterSpacing: -0.4,
-                  fontSize: 20,
-                ),
+              padding: const EdgeInsets.fromLTRB(20, 2, 20, 10),
+              child: Row(
+                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                crossAxisAlignment: CrossAxisAlignment.baseline,
+                textBaseline: TextBaseline.alphabetic,
+                children: [
+                  Text(
+                    'Xu hướng hôm nay',
+                    style: GoogleFonts.quicksand(
+                      fontSize: 15.5,
+                      fontWeight: FontWeight.w700,
+                      color: AppColors.ink,
+                    ),
+                  ),
+                  BouncyTap(
+                    onTap: () {},
+                    child: Text(
+                      'Xem tất cả',
+                      style: GoogleFonts.quicksand(
+                        fontSize: 12,
+                        fontWeight: FontWeight.w700,
+                        color: AppColors.mintDeep,
+                      ),
+                    ),
+                  ),
+                ],
               ),
             ),
 
-            // Trending list
+            // ── Trend List ───────────────────────────────────────────────
             Expanded(
               child: ListView.builder(
-                padding: const EdgeInsets.symmetric(horizontal: 16),
+                padding: const EdgeInsets.only(left: 20, right: 20, bottom: 96),
                 itemCount: _trends.length,
                 physics: const BouncingScrollPhysics(),
                 itemBuilder: (context, index) {
                   final trend = _trends[index];
-                  return _TrendCard(
-                    tag: trend['tag'] as String,
-                    count: _formatCount(trend['count'] as int),
-                    category: trend['category'] as String,
-                    index: index,
+                  final tag = trend['tag'] as String;
+                  final count = trend['count'] as String;
+                  final category = trend['category'] as String;
+                  final rankColor = index < _rankBg.length
+                      ? _rankBg[index]
+                      : const Color(0xFFC7BDB6);
+                  final catBg = _catBg[category] ?? const Color(0xFFF0EBE8);
+                  final catFg = _catFg[category] ?? AppColors.ink;
+
+                  return Padding(
+                    padding: const EdgeInsets.only(bottom: 10),
+                    child: BouncyTap(
+                      onTap: () {
+                        _searchController.text = tag;
+                        setState(() {});
+                      },
+                      child: Container(
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 14,
+                          vertical: 12,
+                        ),
+                        decoration: BoxDecoration(
+                          color: Colors.white,
+                          borderRadius: BorderRadius.circular(18),
+                          boxShadow: AppColors.shadowSoft,
+                        ),
+                        child: Row(
+                          children: [
+                            // Rank Chip
+                            Container(
+                              width: 30,
+                              height: 30,
+                              decoration: BoxDecoration(
+                                color: rankColor,
+                                borderRadius: BorderRadius.circular(12),
+                              ),
+                              child: Center(
+                                child: Text(
+                                  '${index + 1}',
+                                  style: GoogleFonts.quicksand(
+                                    fontSize: 13,
+                                    fontWeight: FontWeight.w700,
+                                    color: Colors.white,
+                                  ),
+                                ),
+                              ),
+                            ),
+                            const SizedBox(width: 12),
+                            // Tag & Count
+                            Expanded(
+                              child: Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  Text(
+                                    tag,
+                                    style: GoogleFonts.quicksand(
+                                      fontSize: 13.5,
+                                      fontWeight: FontWeight.w700,
+                                      color: AppColors.ink,
+                                    ),
+                                  ),
+                                  const SizedBox(height: 1),
+                                  Text(
+                                    count,
+                                    style: GoogleFonts.nunito(
+                                      fontSize: 11.5,
+                                      color: AppColors.inkSoft,
+                                      fontWeight: FontWeight.w500,
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            ),
+                            // Category pill
+                            Container(
+                              padding: const EdgeInsets.symmetric(
+                                horizontal: 11,
+                                vertical: 5,
+                              ),
+                              decoration: BoxDecoration(
+                                color: catBg,
+                                borderRadius: BorderRadius.circular(10),
+                              ),
+                              child: Text(
+                                category,
+                                style: GoogleFonts.quicksand(
+                                  fontSize: 11,
+                                  fontWeight: FontWeight.w700,
+                                  color: catFg,
+                                ),
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ),
                   );
                 },
               ),
             ),
           ] else ...[
-            // No results state
+            // ── Search Results / Empty State ─────────────────────────────
             Expanded(
               child: Center(
                 child: Column(
@@ -169,31 +307,36 @@ class _SearchScreenState extends State<SearchScreen>
                     Container(
                       width: 72,
                       height: 72,
-                      decoration: BoxDecoration(
-                        color: AppColors.inputFill,
-                        shape: BoxShape.circle,
-                        border: Border.all(color: AppColors.border, width: 0.5),
+                      decoration: const BoxDecoration(
+                        gradient: AppColors.peachMintGradient,
+                        borderRadius: BorderRadius.only(
+                          topLeft: Radius.circular(30),
+                          topRight: Radius.circular(30),
+                          bottomRight: Radius.circular(30),
+                          bottomLeft: Radius.circular(10),
+                        ),
                       ),
                       child: const Icon(
-                        Icons.search_off_rounded,
-                        size: 30,
-                        color: AppColors.textSecondary,
+                        Icons.search_rounded,
+                        size: 32,
+                        color: AppColors.ink,
                       ),
                     ),
-                    const SizedBox(height: 20),
+                    const SizedBox(height: 18),
                     Text(
-                      'Không tìm thấy kết quả',
-                      style: AppTypography.headlineSmall.copyWith(
-                        color: AppColors.textPrimary,
+                      'Tìm kiếm cho "${_searchController.text}"',
+                      style: GoogleFonts.quicksand(
+                        fontSize: 16,
                         fontWeight: FontWeight.w700,
-                        letterSpacing: -0.4,
+                        color: AppColors.ink,
                       ),
                     ),
-                    const SizedBox(height: 8),
+                    const SizedBox(height: 6),
                     Text(
-                      'Thử tìm kiếm với từ khóa khác',
-                      style: AppTypography.bodyMedium.copyWith(
-                        color: AppColors.textSecondary,
+                      'Chưa có kết quả tương ứng',
+                      style: GoogleFonts.nunito(
+                        fontSize: 13,
+                        color: AppColors.inkSoft,
                       ),
                     ),
                   ],
@@ -207,110 +350,3 @@ class _SearchScreenState extends State<SearchScreen>
   }
 }
 
-class _TrendCard extends StatelessWidget {
-  final String tag;
-  final String count;
-  final String category;
-  final int index;
-
-  const _TrendCard({
-    required this.tag,
-    required this.count,
-    required this.category,
-    required this.index,
-  });
-
-  Color _categoryColor() {
-    switch (category) {
-      case 'Tech': return const Color(0xFF6C63FF);
-      case 'Dev': return const Color(0xFF00C7A3);
-      case 'Design': return const Color(0xFFFF6B6B);
-      default: return AppColors.textSecondary;
-    }
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    return Container(
-      margin: const EdgeInsets.only(bottom: 10),
-      decoration: BoxDecoration(
-        color: AppColors.surface,
-        borderRadius: BorderRadius.circular(14),
-        border: Border.all(color: AppColors.border, width: 0.5),
-      ),
-      child: Material(
-        color: Colors.transparent,
-        borderRadius: BorderRadius.circular(14),
-        child: InkWell(
-          borderRadius: BorderRadius.circular(14),
-          splashColor: AppColors.primaryAccent.withOpacity(0.05),
-          highlightColor: AppColors.inputFill.withOpacity(0.6),
-          onTap: () {},
-          child: Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
-            child: Row(
-              children: [
-                // Rank number
-                SizedBox(
-                  width: 28,
-                  child: Text(
-                    '${index + 1}',
-                    style: TextStyle(
-                      fontSize: 13,
-                      fontWeight: FontWeight.w700,
-                      color: AppColors.textTertiary,
-                    ),
-                  ),
-                ),
-                Expanded(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text(
-                        tag,
-                        style: AppTypography.titleMedium.copyWith(
-                          fontWeight: FontWeight.w700,
-                          color: AppColors.textPrimary,
-                          letterSpacing: -0.2,
-                        ),
-                      ),
-                      const SizedBox(height: 3),
-                      Text(
-                        '$count bài viết',
-                        style: AppTypography.labelMedium.copyWith(
-                          color: AppColors.textSecondary,
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
-                // Category badge
-                Container(
-                  padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
-                  decoration: BoxDecoration(
-                    color: _categoryColor().withOpacity(0.1),
-                    borderRadius: BorderRadius.circular(20),
-                  ),
-                  child: Text(
-                    category,
-                    style: TextStyle(
-                      fontSize: 11,
-                      fontWeight: FontWeight.w600,
-                      color: _categoryColor(),
-                    ),
-                  ),
-                ),
-                const SizedBox(width: 10),
-                const Icon(
-                  Icons.arrow_forward_ios_rounded,
-                  size: 14,
-                  color: AppColors.icon,
-                ),
-              ],
-            ),
-          ),
-        ),
-      ),
-    );
-  }
-}

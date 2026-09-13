@@ -1,0 +1,893 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Threads — Thiết kế mới</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Quicksand:wght@500;600;700&family=Nunito:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+<style>
+  :root{
+    --cream:#FFF6EC;
+    --cream-deep:#FCEEE0;
+    --coral:#FF7A5C;
+    --coral-deep:#F0603F;
+    --peach:#FFE0D1;
+    --mint:#A8DDD1;
+    --mint-deep:#7FC9BA;
+    --ink:#3D2C28;
+    --ink-soft:#9B8981;
+    --white:#FFFFFF;
+    --heart:#FF5A7A;
+    --shadow-soft: 0 8px 24px rgba(61,44,40,0.08);
+    --shadow-btn: 0 6px 16px rgba(255,122,92,0.35);
+  }
+  *{box-sizing:border-box; -webkit-tap-highlight-color:transparent;}
+  html,body{margin:0;padding:0;}
+  body{
+    font-family:'Nunito', sans-serif;
+    background:
+      radial-gradient(circle at 15% 8%, var(--peach) 0%, transparent 45%),
+      radial-gradient(circle at 88% 82%, var(--mint) 0%, transparent 40%),
+      var(--cream);
+    min-height:100vh;
+    display:flex;
+    align-items:center;
+    justify-content:center;
+    padding:36px 16px;
+    color:var(--ink);
+  }
+  h1,h2,h3{font-family:'Quicksand', sans-serif; margin:0;}
+
+  /* ---------- Page framing (outside the phone) ---------- */
+  .stage{
+    display:flex;
+    flex-direction:column;
+    align-items:center;
+    gap:18px;
+  }
+  .stage-label{
+    text-align:center;
+    max-width:360px;
+  }
+  .stage-label h1{font-size:22px; font-weight:700; color:var(--ink);}
+  .stage-label p{font-size:13.5px; color:var(--ink-soft); margin-top:6px; line-height:1.5;}
+
+  /* ---------- Phone frame ---------- */
+  .phone{
+    width:375px;
+    height:780px;
+    background:var(--ink);
+    border-radius:52px;
+    padding:12px;
+    box-shadow: 0 30px 60px -10px rgba(61,44,40,0.35), 0 0 0 1px rgba(61,44,40,0.06);
+    position:relative;
+  }
+  .phone::before{
+    content:"";
+    position:absolute;
+    top:12px; left:50%; transform:translateX(-50%);
+    width:110px; height:26px;
+    background:var(--ink);
+    border-radius:20px;
+    z-index:20;
+  }
+  .screen{
+    width:100%; height:100%;
+    background:var(--cream);
+    border-radius:42px;
+    overflow:hidden;
+    position:relative;
+    display:flex;
+    flex-direction:column;
+  }
+
+  /* ---------- Shared bits ---------- */
+  .status-space{height:34px; flex:0 0 auto;}
+  .scroll-area{
+    flex:1 1 auto;
+    overflow-y:auto;
+    -ms-overflow-style:none;
+    scrollbar-width:none;
+  }
+  .scroll-area::-webkit-scrollbar{display:none;}
+
+  .view{
+    position:absolute;
+    inset:0;
+    display:flex;
+    flex-direction:column;
+    background:var(--cream);
+    opacity:0;
+    transform:translateY(14px) scale(0.98);
+    pointer-events:none;
+    transition:opacity .38s cubic-bezier(.22,.9,.3,1), transform .38s cubic-bezier(.22,.9,.3,1);
+  }
+  .view.active{
+    opacity:1;
+    transform:translateY(0) scale(1);
+    pointer-events:auto;
+    z-index:5;
+  }
+  .view.top{z-index:6;}
+
+  .app-shell{position:absolute; inset:0;}
+
+  /* buttons — tactile press feel everywhere */
+  .pressable{
+    transition: transform .16s cubic-bezier(.2,.9,.3,1), box-shadow .16s ease, filter .16s ease;
+  }
+  .pressable:active{
+    transform: scale(0.94);
+    filter:brightness(0.97);
+  }
+
+  /* ============ LOGIN VIEW ============ */
+  #view-login{
+    align-items:center;
+    padding:0 28px;
+    background:
+      radial-gradient(circle at 20% 0%, var(--peach) 0%, transparent 55%),
+      radial-gradient(circle at 100% 30%, var(--mint) 0%, transparent 45%),
+      var(--cream);
+  }
+  .blob-mark{
+    width:78px; height:78px;
+    margin-top:54px;
+    border-radius:34px 34px 34px 12px;
+    background:linear-gradient(145deg, var(--coral), var(--coral-deep));
+    display:flex; align-items:center; justify-content:center;
+    box-shadow: var(--shadow-btn);
+    transform:rotate(-4deg);
+  }
+  .blob-mark svg{width:38px; height:38px;}
+  .login-title{margin-top:26px; font-size:26px; font-weight:700; color:var(--ink); text-align:center;}
+  .login-sub{margin-top:6px; font-size:13.5px; color:var(--ink-soft); text-align:center;}
+
+  .field{
+    width:100%;
+    margin-top:16px;
+    background:var(--white);
+    border-radius:20px;
+    padding:15px 18px;
+    display:flex; align-items:center; gap:10px;
+    box-shadow: var(--shadow-soft);
+    border:2px solid transparent;
+    transition:border-color .2s ease, transform .2s ease;
+  }
+  .field:focus-within{border-color:var(--coral);}
+  .field input{
+    border:none; outline:none; background:transparent;
+    font-family:'Nunito', sans-serif;
+    font-size:14.5px; color:var(--ink); width:100%;
+  }
+  .field input::placeholder{color:var(--ink-soft);}
+  .field svg{flex:0 0 auto; opacity:.55;}
+
+  .forgot{
+    align-self:flex-end;
+    margin-top:10px;
+    font-size:12.5px;
+    color:var(--mint-deep);
+    font-weight:700;
+  }
+
+  .btn-primary{
+    width:100%;
+    margin-top:22px;
+    background:linear-gradient(135deg, var(--coral), var(--coral-deep));
+    color:#fff;
+    border:none;
+    border-radius:20px;
+    padding:16px 0;
+    font-family:'Quicksand', sans-serif;
+    font-size:15.5px; font-weight:700;
+    box-shadow: var(--shadow-btn);
+    cursor:pointer;
+    display:flex; align-items:center; justify-content:center; gap:8px;
+  }
+  .btn-primary .spinner{
+    width:16px; height:16px; border-radius:50%;
+    border:2.5px solid rgba(255,255,255,.45);
+    border-top-color:#fff;
+    display:none;
+    animation:spin .7s linear infinite;
+  }
+  .btn-primary.loading .spinner{display:inline-block;}
+  .btn-primary.loading .btn-label{opacity:.85;}
+  @keyframes spin{to{transform:rotate(360deg);}}
+
+  .divider-row{
+    display:flex; align-items:center; gap:10px;
+    width:100%; margin:20px 0 4px;
+    color:var(--ink-soft); font-size:12px;
+  }
+  .divider-row::before, .divider-row::after{
+    content:""; flex:1; height:1px; background:rgba(61,44,40,0.12);
+  }
+
+  .btn-google{
+    width:100%;
+    background:var(--white);
+    border:2px solid rgba(61,44,40,0.08);
+    border-radius:20px;
+    padding:14px 0;
+    display:flex; align-items:center; justify-content:center; gap:10px;
+    font-family:'Nunito', sans-serif; font-weight:700; font-size:14px; color:var(--ink);
+    cursor:pointer;
+  }
+  .signup-row{
+    margin-top:18px; margin-bottom:28px;
+    font-size:13px; color:var(--ink-soft);
+  }
+  .signup-row b{color:var(--coral-deep);}
+
+  /* ============ APP TOP BAR ============ */
+  .app-top{
+    flex:0 0 auto;
+    display:flex; align-items:center; justify-content:space-between;
+    padding:2px 20px 10px;
+  }
+  .app-top .brand{
+    width:30px; height:30px; border-radius:12px 12px 12px 5px;
+    background:linear-gradient(145deg, var(--coral), var(--coral-deep));
+    display:flex; align-items:center; justify-content:center;
+  }
+  .app-top .brand svg{width:15px; height:15px;}
+  .icon-btn{
+    width:34px; height:34px; border-radius:14px;
+    background:var(--white);
+    display:flex; align-items:center; justify-content:center;
+    box-shadow: 0 3px 10px rgba(61,44,40,0.06);
+    cursor:pointer;
+  }
+
+  /* Tabs (Home) */
+  .tabbar{
+    position:relative;
+    display:flex;
+    margin:0 20px 4px;
+    background:var(--white);
+    border-radius:16px;
+    padding:4px;
+    box-shadow: var(--shadow-soft);
+  }
+  .tabbar .tab{
+    flex:1;
+    text-align:center;
+    padding:9px 0;
+    font-family:'Quicksand',sans-serif;
+    font-weight:700;
+    font-size:13px;
+    color:var(--ink-soft);
+    position:relative;
+    z-index:2;
+    cursor:pointer;
+    transition:color .25s ease;
+  }
+  .tabbar .tab.active{color:#fff;}
+  .tab-pill{
+    position:absolute; top:4px; left:4px;
+    width:calc(50% - 4px); height:calc(100% - 8px);
+    background:linear-gradient(135deg, var(--coral), var(--coral-deep));
+    border-radius:12px;
+    transition:transform .32s cubic-bezier(.2,.9,.25,1);
+    box-shadow: 0 4px 12px rgba(255,122,92,0.4);
+    z-index:1;
+  }
+  .tabbar .tab:nth-child(2).active ~ .tab-pill, .tabbar[data-active="1"] .tab-pill{
+    transform:translateX(100%);
+  }
+
+  .composer-row{
+    margin:12px 20px 6px;
+    background:var(--white);
+    border-radius:18px;
+    padding:12px 14px;
+    display:flex; align-items:center; gap:10px;
+    box-shadow: var(--shadow-soft);
+  }
+  .avatar-blob{
+    width:34px; height:34px; border-radius:14px 14px 14px 5px;
+    background:linear-gradient(145deg, var(--mint), var(--mint-deep));
+    flex:0 0 auto;
+    display:flex;align-items:center;justify-content:center;
+    color:#fff; font-weight:800; font-size:13px;
+    font-family:'Quicksand',sans-serif;
+  }
+  .composer-row input{
+    flex:1; border:none; outline:none; background:transparent;
+    font-family:'Nunito'; font-size:13.5px; color:var(--ink-soft);
+  }
+  .composer-row .post-chip{
+    background:var(--peach); color:var(--coral-deep);
+    font-family:'Quicksand'; font-weight:700; font-size:12px;
+    padding:7px 14px; border-radius:12px; cursor:pointer;
+  }
+
+  /* Feed cards */
+  .feed{padding:6px 20px 100px;}
+  .post-card{
+    background:var(--white);
+    border-radius:22px;
+    padding:14px 14px 10px;
+    margin-bottom:14px;
+    box-shadow: var(--shadow-soft);
+  }
+  .post-head{display:flex; align-items:center; gap:9px;}
+  .post-head .name{font-family:'Quicksand'; font-weight:700; font-size:13.5px;}
+  .post-head .time{font-size:11.5px; color:var(--ink-soft); margin-left:auto;}
+  .post-text{font-size:13.5px; margin:9px 0 10px; line-height:1.5; color:var(--ink);}
+  .media-wrap{
+    position:relative;
+    border-radius:16px;
+    overflow:hidden;
+    background:linear-gradient(160deg,#5c4a44,#2c2220);
+    aspect-ratio: 4/5;
+    display:flex; align-items:center; justify-content:center;
+  }
+  .media-wrap img{width:100%; height:100%; object-fit:cover; display:block;}
+  .play-badge{
+    position:absolute; inset:0;
+    display:flex; align-items:center; justify-content:center;
+  }
+  .play-badge .circle{
+    width:52px; height:52px; border-radius:50%;
+    background:rgba(255,255,255,0.22);
+    backdrop-filter:blur(2px);
+    display:flex; align-items:center; justify-content:center;
+    border:1.5px solid rgba(255,255,255,0.5);
+  }
+  .caption-pill{
+    position:absolute; bottom:12px; left:12px;
+    background:rgba(0,0,0,0.45);
+    color:#fff; font-size:12px; font-weight:700;
+    padding:5px 12px; border-radius:10px;
+    font-family:'Quicksand';
+  }
+  .mute-badge{
+    position:absolute; bottom:12px; right:12px;
+    width:26px; height:26px; border-radius:50%;
+    background:rgba(0,0,0,0.45);
+    display:flex; align-items:center; justify-content:center;
+  }
+
+  .react-row{
+    display:flex; align-items:center; gap:16px;
+    margin-top:10px; padding-top:8px;
+  }
+  .react-btn{
+    display:flex; align-items:center; gap:5px;
+    background:none; border:none; cursor:pointer;
+    color:var(--ink-soft);
+    font-family:'Nunito'; font-weight:700; font-size:12.5px;
+    position:relative;
+  }
+  .react-btn.like.active{color:var(--heart);}
+  .react-btn svg{width:19px; height:19px;}
+  .heart-pop{
+    position:absolute; left:-4px; top:-6px;
+    pointer-events:none;
+    opacity:0;
+  }
+  .heart-pop.burst{
+    animation: pop .55s ease-out forwards;
+  }
+  @keyframes pop{
+    0%{opacity:1; transform:scale(0.3) translateY(0);}
+    60%{opacity:1; transform:scale(1.3) translateY(-14px);}
+    100%{opacity:0; transform:scale(1.1) translateY(-24px);}
+  }
+
+  /* ============ SEARCH ============ */
+  .search-bar{
+    margin:2px 20px 14px;
+    background:var(--white);
+    border-radius:18px;
+    padding:12px 16px;
+    display:flex; align-items:center; gap:9px;
+    box-shadow: var(--shadow-soft);
+  }
+  .search-bar input{
+    border:none; outline:none; background:transparent; flex:1;
+    font-family:'Nunito'; font-size:13.5px; color:var(--ink);
+  }
+  .search-bar input::placeholder{color:var(--ink-soft);}
+  .section-heading{
+    display:flex; justify-content:space-between; align-items:baseline;
+    margin:4px 20px 10px;
+  }
+  .section-heading h3{font-size:15.5px; font-weight:700;}
+  .section-heading span{font-size:12px; color:var(--mint-deep); font-weight:700;}
+  .trend-list{padding:0 20px 100px;}
+  .trend-row{
+    display:flex; align-items:center; gap:12px;
+    background:var(--white);
+    border-radius:18px;
+    padding:12px 14px;
+    margin-bottom:10px;
+    box-shadow: var(--shadow-soft);
+  }
+  .rank-chip{
+    width:30px; height:30px; border-radius:12px;
+    display:flex; align-items:center; justify-content:center;
+    font-family:'Quicksand'; font-weight:700; font-size:13px;
+    color:#fff; flex:0 0 auto;
+  }
+  .trend-row .info{flex:1;}
+  .trend-row .tag{font-family:'Quicksand'; font-weight:700; font-size:13.5px;}
+  .trend-row .count{font-size:11.5px; color:var(--ink-soft); margin-top:1px;}
+  .cat-pill{
+    font-size:11px; font-weight:700; padding:5px 11px; border-radius:10px;
+    font-family:'Quicksand';
+  }
+
+  /* ============ ACTIVITY (empty state) ============ */
+  .segmented{
+    display:flex; gap:8px; margin:2px 20px 26px; flex-wrap:wrap;
+  }
+  .seg-chip{
+    padding:8px 16px; border-radius:14px;
+    font-family:'Quicksand'; font-weight:700; font-size:12.5px;
+    background:var(--white); color:var(--ink-soft);
+    box-shadow: var(--shadow-soft);
+    cursor:pointer;
+  }
+  .seg-chip.active{background:var(--ink); color:#fff;}
+  .empty-wrap{
+    flex:1; display:flex; flex-direction:column; align-items:center; justify-content:center;
+    text-align:center; padding:0 40px 80px; gap:14px;
+  }
+  .empty-blob{
+    width:96px; height:96px; border-radius:40px 40px 40px 14px;
+    background:linear-gradient(150deg, var(--peach), var(--mint));
+    display:flex; align-items:center; justify-content:center;
+    animation: sway 3.4s ease-in-out infinite;
+  }
+  @keyframes sway{
+    0%,100%{transform:rotate(-4deg);}
+    50%{transform:rotate(4deg);}
+  }
+  .empty-wrap h3{font-size:16px;}
+  .empty-wrap p{font-size:12.5px; color:var(--ink-soft); line-height:1.6; margin:0;}
+
+  /* ============ PROFILE ============ */
+  .profile-head{padding:6px 20px 4px; display:flex; flex-direction:column; align-items:center;}
+  .big-avatar{
+    width:84px; height:84px; border-radius:34px 34px 34px 12px;
+    background:linear-gradient(150deg, var(--coral), var(--mint));
+    display:flex; align-items:center; justify-content:center;
+    color:#fff; font-family:'Quicksand'; font-weight:700; font-size:26px;
+    box-shadow: var(--shadow-soft);
+    position:relative;
+  }
+  .edit-dot{
+    position:absolute; right:-4px; bottom:-4px;
+    width:26px; height:26px; border-radius:50%;
+    background:var(--coral); border:3px solid var(--cream);
+    display:flex; align-items:center; justify-content:center;
+  }
+  .profile-head h2{margin-top:12px; font-size:17px;}
+  .profile-head .handle{font-size:12.5px; color:var(--ink-soft); margin-top:2px;}
+  .stat-row{display:flex; gap:26px; margin-top:14px;}
+  .stat{text-align:center;}
+  .stat b{display:block; font-family:'Quicksand'; font-size:15px;}
+  .stat span{font-size:11px; color:var(--ink-soft);}
+  .profile-actions{display:flex; gap:10px; width:100%; margin-top:16px; padding:0 20px;}
+  .action-btn{
+    flex:1; padding:11px 0; border-radius:16px;
+    font-family:'Quicksand'; font-weight:700; font-size:12.5px;
+    text-align:center; cursor:pointer;
+  }
+  .action-btn.primary{background:linear-gradient(135deg, var(--coral), var(--coral-deep)); color:#fff; box-shadow:var(--shadow-btn);}
+  .action-btn.secondary{background:var(--white); color:var(--ink); box-shadow:var(--shadow-soft);}
+  .profile-tabs{display:flex; margin:20px 20px 8px; border-bottom:2px solid rgba(61,44,40,0.08);}
+  .profile-tabs .ptab{
+    flex:1; text-align:center; padding:10px 0;
+    font-family:'Quicksand'; font-weight:700; font-size:12.5px; color:var(--ink-soft);
+    border-bottom:3px solid transparent;
+  }
+  .profile-tabs .ptab.active{color:var(--ink); border-color:var(--coral);}
+
+  /* ============ BOTTOM NAV ============ */
+  .bottom-nav{
+    position:absolute; left:14px; right:14px; bottom:16px;
+    height:62px;
+    background:var(--white);
+    border-radius:26px;
+    display:flex; align-items:center; justify-content:space-around;
+    box-shadow: 0 10px 26px rgba(61,44,40,0.14);
+    z-index:30;
+  }
+  .nav-item{
+    width:38px; height:38px; border-radius:14px;
+    display:flex; align-items:center; justify-content:center;
+    color:var(--ink-soft);
+    cursor:pointer;
+    position:relative;
+  }
+  .nav-item.active{color:var(--coral-deep); background:var(--peach);}
+  .nav-item svg{width:20px; height:20px;}
+  .nav-item.fab{
+    width:48px; height:48px; border-radius:18px;
+    background:linear-gradient(135deg, var(--coral), var(--coral-deep));
+    color:#fff;
+    box-shadow: var(--shadow-btn);
+    margin-top:-6px;
+  }
+  .nav-item.fab svg{width:22px; height:22px;}
+
+  /* Composer sheet overlay */
+  .sheet-overlay{
+    position:absolute; inset:0;
+    background:rgba(61,44,40,0.32);
+    display:flex; align-items:flex-end;
+    opacity:0; pointer-events:none;
+    transition:opacity .25s ease;
+    z-index:40;
+  }
+  .sheet-overlay.show{opacity:1; pointer-events:auto;}
+  .sheet{
+    width:100%;
+    background:var(--white);
+    border-radius:28px 28px 0 0;
+    padding:18px 20px 26px;
+    transform:translateY(100%);
+    transition:transform .32s cubic-bezier(.2,.9,.25,1);
+  }
+  .sheet-overlay.show .sheet{transform:translateY(0);}
+  .sheet-handle{width:40px; height:5px; background:rgba(61,44,40,0.15); border-radius:4px; margin:0 auto 14px;}
+  .sheet h3{font-size:15px; margin-bottom:12px;}
+  .sheet textarea{
+    width:100%; border:none; outline:none; resize:none;
+    font-family:'Nunito'; font-size:14px; background:var(--cream-deep);
+    border-radius:16px; padding:12px 14px; min-height:80px; color:var(--ink);
+  }
+  .sheet-actions{display:flex; justify-content:flex-end; gap:10px; margin-top:14px;}
+  .sheet-actions .cancel{
+    padding:10px 16px; border-radius:14px; font-family:'Quicksand'; font-weight:700;
+    font-size:12.5px; color:var(--ink-soft); cursor:pointer;
+  }
+  .sheet-actions .send{
+    padding:10px 18px; border-radius:14px; font-family:'Quicksand'; font-weight:700;
+    font-size:12.5px; color:#fff; background:linear-gradient(135deg,var(--coral),var(--coral-deep));
+    cursor:pointer; box-shadow:var(--shadow-btn);
+  }
+
+  .credit{
+    margin-top:6px;
+    font-size:11.5px; color:var(--ink-soft); text-align:center;
+  }
+</style>
+</head>
+<body>
+
+<div class="stage">
+  <div class="stage-label">
+    <h1>Threads — bản thiết kế cute mới 🍑</h1>
+    <p>Chạm vào các nút, tab và icon trong khung điện thoại — mọi thứ đều có hiệu ứng bấm, chuyển tab mượt và hiệu ứng thả tim khi bạn thích một bài viết.</p>
+  </div>
+
+  <div class="phone">
+    <div class="screen">
+
+      <!-- LOGIN -->
+      <div class="view top active" id="view-login">
+        <div class="status-space"></div>
+        <div class="blob-mark">
+          <svg viewBox="0 0 24 24" fill="none"><path d="M12 3C7 3 4 6.5 4 10.5c0 2.6 1.6 4.6 3.6 5.7-.15.9-.55 2.2-1.4 3.4a.5.5 0 00.55.77c1.9-.6 3.3-1.5 4.15-2.15.35.03.7.05 1.1.05 5 0 8-3.5 8-7.77C20 6.5 17 3 12 3z" fill="#fff"/></svg>
+        </div>
+        <div class="login-title">Chào mừng trở lại</div>
+        <div class="login-sub">Đăng nhập để tiếp tục hành trình của bạn</div>
+
+        <div class="field">
+          <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="#3D2C28" stroke-width="1.8"><rect x="3" y="5" width="18" height="14" rx="3"/><path d="M3 7l9 6 9-6"/></svg>
+          <input type="text" placeholder="Email hoặc tên đăng nhập">
+        </div>
+        <div class="field">
+          <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="#3D2C28" stroke-width="1.8"><rect x="5" y="10" width="14" height="10" rx="3"/><path d="M8 10V7a4 4 0 018 0v3"/></svg>
+          <input type="password" placeholder="Mật khẩu">
+        </div>
+        <div class="forgot pressable">Quên mật khẩu?</div>
+
+        <button class="btn-primary pressable" id="loginBtn">
+          <span class="spinner"></span>
+          <span class="btn-label">Đăng nhập</span>
+        </button>
+
+        <div class="divider-row">hoặc</div>
+
+        <button class="btn-google pressable">
+          <svg width="16" height="16" viewBox="0 0 48 48"><path fill="#EA4335" d="M24 9.5c3.4 0 5.7 1.5 7 2.7l5.1-5C32.9 3.9 28.9 2 24 2 14.8 2 7.1 7.6 3.9 15.4l6 4.7C11.5 14.6 17.2 9.5 24 9.5z"/><path fill="#4285F4" d="M46.5 24.5c0-1.6-.1-2.8-.4-4H24v7.6h12.9c-.3 2.1-1.7 5.3-4.9 7.4l6 4.7c3.5-3.2 5.5-8 5.5-15.7z"/><path fill="#FBBC05" d="M9.9 20.1a14.9 14.9 0 000 8.8l-6 4.7a24 24 0 010-18.2z"/><path fill="#34A853" d="M24 46c5.9 0 10.9-1.9 14.5-5.3l-6-4.7c-2 1.5-4.8 2.5-8.5 2.5-6.8 0-12.5-5.1-13.6-11.8l-6 4.7C7.1 40.4 14.8 46 24 46z"/></svg>
+          Tiếp tục với Google
+        </button>
+
+        <div class="signup-row">Chưa có tài khoản? <b>Đăng ký</b></div>
+      </div>
+
+      <!-- APP SHELL -->
+      <div class="app-shell">
+
+        <!-- HOME -->
+        <div class="view active" id="view-home">
+          <div class="status-space"></div>
+          <div class="app-top">
+            <div class="brand"><svg viewBox="0 0 24 24" fill="none"><path d="M12 3C7 3 4 6.5 4 10.5c0 2.6 1.6 4.6 3.6 5.7-.15.9-.55 2.2-1.4 3.4a.5.5 0 00.55.77c1.9-.6 3.3-1.5 4.15-2.15.35.03.7.05 1.1.05 5 0 8-3.5 8-7.77C20 6.5 17 3 12 3z" fill="#fff"/></svg></div>
+            <div class="icon-btn pressable" onclick="openComposer()">
+              <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="#3D2C28" stroke-width="2"><path d="M22 2L11 13"/><path d="M22 2l-7 20-4-9-9-4 20-7z"/></svg>
+            </div>
+          </div>
+
+          <div class="tabbar" id="homeTabbar" data-active="0">
+            <div class="tab active" onclick="setTab(0)">Dành cho bạn</div>
+            <div class="tab" onclick="setTab(1)">Đang theo dõi</div>
+            <div class="tab-pill"></div>
+          </div>
+
+          <div class="composer-row pressable" onclick="openComposer()">
+            <div class="avatar-blob">T</div>
+            <input placeholder="Có gì mới?" readonly>
+            <div class="post-chip">Đăng</div>
+          </div>
+
+          <div class="scroll-area">
+            <div class="feed" id="feedList">
+              <!-- populated by JS per tab -->
+            </div>
+          </div>
+        </div>
+
+        <!-- SEARCH -->
+        <div class="view" id="view-search">
+          <div class="status-space"></div>
+          <div class="app-top"><h2 style="font-size:17px;">Tìm kiếm</h2><div></div></div>
+          <div class="search-bar">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#9B8981" stroke-width="2"><circle cx="11" cy="11" r="7"/><path d="M21 21l-4.3-4.3"/></svg>
+            <input placeholder="Tìm kiếm bài viết, người dùng...">
+          </div>
+          <div class="section-heading"><h3>Xu hướng hôm nay</h3><span>Xem tất cả</span></div>
+          <div class="scroll-area">
+            <div class="trend-list" id="trendList"></div>
+          </div>
+        </div>
+
+        <!-- ACTIVITY -->
+        <div class="view" id="view-activity">
+          <div class="status-space"></div>
+          <div class="app-top"><h2 style="font-size:17px;">Hoạt động</h2><div></div></div>
+          <div class="segmented">
+            <div class="seg-chip active">Tất cả</div>
+            <div class="seg-chip">Lượt thích</div>
+            <div class="seg-chip">Bình luận</div>
+            <div class="seg-chip">Theo dõi</div>
+          </div>
+          <div class="empty-wrap">
+            <div class="empty-blob">
+              <svg width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="#3D2C28" stroke-width="1.8"><path d="M18 8a6 6 0 10-12 0c0 3.5-1.2 5.4-2 6.5h16c-.8-1.1-2-3-2-6.5z"/><path d="M10 19a2 2 0 004 0"/></svg>
+            </div>
+            <h3>Chưa có hoạt động nào</h3>
+            <p>Lượt thích, bình luận và người theo dõi mới<br>sẽ xuất hiện ở đây khi có ai đó ghé qua 🌿</p>
+          </div>
+        </div>
+
+        <!-- PROFILE -->
+        <div class="view" id="view-profile">
+          <div class="status-space"></div>
+          <div class="app-top"><div></div><div class="icon-btn pressable"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="#3D2C28" stroke-width="2"><path d="M4 6h16M4 12h16M4 18h16"/></svg></div></div>
+          <div class="profile-head">
+            <div class="big-avatar">
+              T
+              <div class="edit-dot"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="2.4"><path d="M12 5v14M5 12h14"/></svg></div>
+            </div>
+            <h2>tomwazter</h2>
+            <div class="handle">@tomwazter</div>
+            <div class="stat-row">
+              <div class="stat"><b>2</b><span>người theo dõi</span></div>
+              <div class="stat"><b>0</b><span>đang theo dõi</span></div>
+            </div>
+          </div>
+          <div class="profile-actions">
+            <div class="action-btn primary pressable">Chỉnh sửa</div>
+            <div class="action-btn secondary pressable">Chia sẻ</div>
+          </div>
+          <div class="profile-tabs">
+            <div class="ptab active">Threads</div>
+            <div class="ptab">Đăng lại</div>
+          </div>
+          <div class="scroll-area">
+            <div class="feed" style="padding-top:4px;">
+              <div class="post-card">
+                <div class="post-head">
+                  <div class="avatar-blob">T</div>
+                  <div class="name">tomwazter</div>
+                  <div class="time">33p</div>
+                </div>
+                <div class="post-text">JU TEN 🌱</div>
+                <div class="media-wrap" style="aspect-ratio:4/3;">
+                  <img src="https://images.unsplash.com/photo-1500534623283-312aade485b7?auto=format&fit=crop&w=600&q=60" alt="">
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+      </div>
+
+      <!-- BOTTOM NAV -->
+      <div class="bottom-nav">
+        <div class="nav-item active pressable" data-screen="home" onclick="goScreen('home')">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 11l9-8 9 8"/><path d="M5 10v10h14V10"/></svg>
+        </div>
+        <div class="nav-item pressable" data-screen="search" onclick="goScreen('search')">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="7"/><path d="M21 21l-4.3-4.3"/></svg>
+        </div>
+        <div class="nav-item fab pressable" onclick="openComposer()">
+          <svg viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="2.4"><path d="M12 5v14M5 12h14"/></svg>
+        </div>
+        <div class="nav-item pressable" data-screen="activity" onclick="goScreen('activity')">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M20.8 8.6c0 4.5-8.8 10.6-8.8 10.6S3.2 13.1 3.2 8.6a4.8 4.8 0 018.8-2.8 4.8 4.8 0 018.8 2.8z"/></svg>
+        </div>
+        <div class="nav-item pressable" data-screen="profile" onclick="goScreen('profile')">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="8" r="3.4"/><path d="M5 20c0-3.6 3.1-6 7-6s7 2.4 7 6"/></svg>
+        </div>
+      </div>
+
+      <!-- COMPOSER SHEET -->
+      <div class="sheet-overlay" id="composerOverlay" onclick="closeComposerBg(event)">
+        <div class="sheet">
+          <div class="sheet-handle"></div>
+          <h3>Tạo thread mới</h3>
+          <textarea placeholder="Có gì mới?"></textarea>
+          <div class="sheet-actions">
+            <div class="cancel pressable" onclick="closeComposer()">Huỷ</div>
+            <div class="send pressable" onclick="closeComposer()">Đăng</div>
+          </div>
+        </div>
+      </div>
+
+    </div>
+  </div>
+
+  <div class="credit">Bản mô phỏng HTML — dùng để xem trước phong cách trước khi dựng lại UI Flutter</div>
+</div>
+
+<script>
+/* ---------------- data ---------------- */
+const feedByTab = [
+  [ // Dành cho bạn
+    {name:"tomwazter", time:"30 phút", text:"JU TEN", img:"https://images.unsplash.com/photo-1500534623283-312aade485b7?auto=format&fit=crop&w=700&q=60", isVideo:true, caption:"MƯỜI ĐIỂM", likes:1},
+    {name:"tomwazter", time:"1 giờ", text:"sugoine", img:"https://images.unsplash.com/photo-1618172193622-ae2d025f4032?auto=format&fit=crop&w=700&q=60", isVideo:false, likes:4}
+  ],
+  [ // Đang theo dõi
+    {name:"hello", time:"15 tuần", text:"fsadfdsafd", img:"https://images.unsplash.com/photo-1494526585095-c41746248156?auto=format&fit=crop&w=700&q=60", isVideo:true, likes:2, comments:1},
+    {name:"hello", time:"15 tuần", text:"fsdfasdf", img:"", isVideo:false, likes:0}
+  ]
+];
+
+const trends = [
+  {rank:1, tag:"#Flutter", count:"5.4k bài viết", cat:"Tech", color:"#7C6CF0"},
+  {rank:2, tag:"#ReactJS", count:"7.9k bài viết", cat:"Dev", color:"#4FBFA8"},
+  {rank:3, tag:"#TypeScript", count:"4.3k bài viết", cat:"Dev", color:"#4FBFA8"},
+  {rank:4, tag:"#WebDev", count:"9.7k bài viết", cat:"Design", color:"#FF6B8B"},
+  {rank:5, tag:"#AI", count:"6.8k bài viết", cat:"Tech", color:"#7C6CF0"},
+  {rank:6, tag:"#Design", count:"9.3k bài viết", cat:"Design", color:"#FF6B8B"},
+];
+const catBg = {Tech:"#EDE9FE", Dev:"#DCF7EF", Design:"#FFE3EA"};
+const catFg = {Tech:"#7C6CF0", Dev:"#2FAE8F", Design:"#FF6B8B"};
+const rankBg = ["#FF7A5C","#8B7A73","#8B7A73","#C7BDB6","#C7BDB6","#C7BDB6"];
+
+function heartIconSVG(filled){
+  return filled
+    ? '<svg viewBox="0 0 24 24" fill="#FF5A7A" stroke="#FF5A7A" stroke-width="1.6"><path d="M12 21s-7.5-4.6-10-9.2C0.3 8.2 2 4.5 5.7 4c2.1-.3 4 .8 5 2.6 1-1.8 2.9-2.9 5-2.6 3.7.5 5.4 4.2 3.7 7.8C19.5 16.4 12 21 12 21z"/></svg>'
+    : '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9"><path d="M12 21s-7.5-4.6-10-9.2C0.3 8.2 2 4.5 5.7 4c2.1-.3 4 .8 5 2.6 1-1.8 2.9-2.9 5-2.6 3.7.5 5.4 4.2 3.7 7.8C19.5 16.4 12 21 12 21z"/></svg>';
+}
+
+function renderFeed(tabIndex){
+  const list = document.getElementById('feedList');
+  list.innerHTML = feedByTab[tabIndex].map((p, i) => `
+    <div class="post-card">
+      <div class="post-head">
+        <div class="avatar-blob">${p.name[0].toUpperCase()}</div>
+        <div class="name">${p.name}</div>
+        <div class="time">${p.time}</div>
+      </div>
+      <div class="post-text">${p.text}</div>
+      ${p.img ? `
+      <div class="media-wrap">
+        <img src="${p.img}" alt="">
+        ${p.isVideo ? `<div class="play-badge"><div class="circle"><svg width="20" height="20" viewBox="0 0 24 24" fill="#fff"><path d="M8 5v14l11-7z"/></svg></div></div>` : ``}
+        ${p.caption ? `<div class="caption-pill">${p.caption}</div>` : ``}
+        ${p.isVideo ? `<div class="mute-badge"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="2"><path d="M11 5L6 9H2v6h4l5 4V5z"/><path d="M23 9l-6 6M17 9l6 6"/></svg></div>` : ``}
+      </div>` : ``}
+      <div class="react-row">
+        <button class="react-btn like" data-count="${p.likes}" onclick="toggleLike(this)">
+          <span class="heart-pop">${heartIconSVG(true)}</span>
+          <span class="ic">${heartIconSVG(false)}</span>
+          <span class="cnt">${p.likes || ''}</span>
+        </button>
+        <button class="react-btn"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9"><path d="M21 11.5a8.4 8.4 0 01-9.3 8.4A8.6 8.6 0 013 12a8.4 8.4 0 018.4-8.4A8.6 8.6 0 0121 11.5z"/></svg>${p.comments ? p.comments : ''}</button>
+        <button class="react-btn"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9"><path d="M17 1l4 4-4 4"/><path d="M3 11V9a4 4 0 014-4h14"/><path d="M7 23l-4-4 4-4"/><path d="M21 13v2a4 4 0 01-4 4H3"/></svg></button>
+        <button class="react-btn" style="margin-left:auto;"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9"><path d="M22 2L11 13"/><path d="M22 2l-7 20-4-9-9-4 20-7z"/></svg></button>
+      </div>
+    </div>
+  `).join('');
+}
+
+function renderTrends(){
+  const list = document.getElementById('trendList');
+  list.innerHTML = trends.map(t => `
+    <div class="trend-row pressable">
+      <div class="rank-chip" style="background:${rankBg[t.rank-1]}">${t.rank}</div>
+      <div class="info">
+        <div class="tag">${t.tag}</div>
+        <div class="count">${t.count}</div>
+      </div>
+      <div class="cat-pill" style="background:${catBg[t.cat]}; color:${catFg[t.cat]}">${t.cat}</div>
+    </div>
+  `).join('');
+}
+
+/* ---------------- interactions ---------------- */
+function setTab(i){
+  document.getElementById('homeTabbar').dataset.active = i;
+  document.querySelectorAll('#homeTabbar .tab').forEach((el, idx) => el.classList.toggle('active', idx === i));
+  const pill = document.querySelector('.tab-pill');
+  pill.style.transform = i === 1 ? 'translateX(100%)' : 'translateX(0)';
+  renderFeed(i);
+}
+
+function toggleLike(btn){
+  const wasActive = btn.classList.contains('active');
+  const cntEl = btn.querySelector('.cnt');
+  let count = parseInt(btn.dataset.count || '0', 10);
+  if(!wasActive){
+    btn.classList.add('active');
+    count += 1;
+    const pop = btn.querySelector('.heart-pop');
+    pop.classList.remove('burst');
+    void pop.offsetWidth;
+    pop.classList.add('burst');
+  } else {
+    btn.classList.remove('active');
+    count = Math.max(0, count - 1);
+  }
+  btn.dataset.count = count;
+  cntEl.textContent = count > 0 ? count : '';
+}
+
+const screens = ['home','search','activity','profile'];
+function goScreen(name){
+  screens.forEach(s => document.getElementById('view-'+s).classList.toggle('active', s === name));
+  document.querySelectorAll('.nav-item[data-screen]').forEach(el => {
+    el.classList.toggle('active', el.dataset.screen === name);
+  });
+}
+
+function openComposer(){
+  document.getElementById('composerOverlay').classList.add('show');
+}
+function closeComposer(){
+  document.getElementById('composerOverlay').classList.remove('show');
+}
+function closeComposerBg(e){
+  if(e.target.id === 'composerOverlay') closeComposer();
+}
+
+document.getElementById('loginBtn').addEventListener('click', function(){
+  const btn = this;
+  if(btn.classList.contains('loading')) return;
+  btn.classList.add('loading');
+  setTimeout(() => {
+    btn.classList.remove('loading');
+    document.getElementById('view-login').classList.remove('active');
+    document.getElementById('view-login').classList.remove('top');
+  }, 900);
+});
+
+/* init */
+renderFeed(0);
+renderTrends();
+</script>
+</body>
+</html>

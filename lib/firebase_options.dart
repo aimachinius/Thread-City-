@@ -17,10 +17,7 @@ import 'package:flutter/foundation.dart'
 class DefaultFirebaseOptions {
   static FirebaseOptions get currentPlatform {
     if (kIsWeb) {
-      throw UnsupportedError(
-        'DefaultFirebaseOptions have not been configured for web - '
-        'you can reconfigure this by running the FlutterFire CLI again.',
-      );
+      return web;
     }
     switch (defaultTargetPlatform) {
       case TargetPlatform.android:
@@ -69,4 +66,17 @@ class DefaultFirebaseOptions {
     iosBundleId: 'com.thread.app.threadApp',
   );
 
+  /// Web configuration — lấy từ Firebase Console → Project Settings → Your apps → Web app
+  /// Nếu chưa có Web app, vào Firebase Console tạo mới rồi copy các giá trị vào đây.
+  static const FirebaseOptions web = FirebaseOptions(
+    apiKey: 'AIzaSyBME4T6l-Pr93AdCOaELTnIF7HmLZIq9z0',
+    authDomain: 'thread-b4d7b.firebaseapp.com',
+    databaseURL: 'https://thread-b4d7b-default-rtdb.firebaseio.com',
+    projectId: 'thread-b4d7b',
+    storageBucket: 'thread-b4d7b.firebasestorage.app',
+    messagingSenderId: '503930873519',
+    // TODO: Thay giá trị này bằng Web appId thực từ Firebase Console
+    // Firebase Console → Project Settings → Your Apps → Web app → App ID
+    appId: '1:503930873519:web:0000000000000000',
+  );
 }
