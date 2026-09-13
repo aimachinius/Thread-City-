@@ -1,4 +1,4 @@
-import express from 'express';
+import express, { Request, Response } from 'express';
 import cors from 'cors';
 import helmet from 'helmet';
 import morgan from 'morgan';
@@ -34,9 +34,10 @@ app.use('/api/messages', messageRoutes);
 app.use('/api/notifications', notificationRoutes);
 
 // API kiểm tra trạng thái Server (Health check)
-app.get('/', (req, res) => {
+app.get('/', (req: Request, res: Response) => {
     res.send('Welcome to Thread City API! 🚀 Server is running.');
 });
+
 
 const PORT = process.env.PORT || 3000;
 httpServer.listen(Number(PORT), '0.0.0.0', () => {
