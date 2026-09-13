@@ -1,0 +1,57 @@
+version: '3.8'
+
+services:
+  mysql:
+    image: mysql:8.0
+    container_name: thread_mysql_prod
+    restart: always
+    environment:
+      MYSQL_DATABASE: thread_city
+      MYSQL_USER: thread_user
+      MYSQL_PASSWORD: ${MYSQL_PASSWORD:-thread_password}
+      MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD:-root_password}
+    # Không mở port ra máy host để đảm bảo an toàn trên môi trường Cloud
+    volumes:
+      - mysql_prod_data:/var/lib/mysql
+      - ../Backend/schema.sql:/docker-entrypoint-initdb.d/schema.sql
+    networks:
+      - thread_prod_network
+
+  redis:
+    image: redis:alpine
+    container_name: thread_redis_prod
+    restart: always
+    # Không mở port ra máy host để tránh bị quét cổng/tấn công Redis
+    volumes:
+      - redis_prod_data:/data
+    networks:
+      - thread_prod_network
+
+  backend:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: thread_backend_prod
+    restart: always
+    ports:
+      - "3000:3000"
+    environment:
+      NODE_ENV: production
+      PORT: 3000
+      # Chú ý: Trong mạng Docker, hostname chính là tên service nội bộ (mysql và redis)
+      DATABASE_URL: mysql://thread_user:${MYSQL_PASSWORD:-thread_password}@mysql:3306/thread_city
+      REDIS_URL: redis://redis:6379
+      JWT_SECRET: ${JWT_SECRET:-your_senior_secret_key_here}
+    depends_on:
+      - mysql
+      - redis
+    networks:
+      - thread_prod_network
+
+volumes:
+  mysql_prod_data:
+  redis_prod_data:
+
+networks:
+  thread_prod_network:
+    driver: bridge

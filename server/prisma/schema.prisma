@@ -8,30 +8,36 @@ datasource db {
 }
 
 model User {
-  id             Int            @id @default(autoincrement())
-  username       String         @unique
-  email          String         @unique
-  password_hash  String?
-  bio            String?        @db.Text
-  avatar_url     String?
-  created_at     DateTime       @default(now())
-  updated_at     DateTime       @updatedAt
-  is_verified    Boolean        @default(false)
-  status         UserStatus     @default(active)
-  firebase_uid   String         @unique
-  blocksReceived Block[]        @relation("Blocked")
-  blocksSent     Block[]        @relation("Blocker")
-  convsAsUser1   Conversation[] @relation("User1")
-  convsAsUser2   Conversation[] @relation("User2")
-  followers      Follow[]       @relation("Follower")
-  following      Follow[]       @relation("Following")
-  likes          Like[]
-  messages       Message[]
-  actions        Notification[] @relation("Actor")
-  notifications  Notification[] @relation("Recipient")
-  posts          Post[]
-  reposts        Repost[]
+  id                Int                 @id @default(autoincrement())
+  firebase_uid      String              @unique(map: "firebase_uid") @db.VarChar(128)
+  username          String              @unique(map: "username") @db.VarChar(30)
+  email             String              @unique(map: "email") @db.VarChar(255)
+  nickname          String?             @db.VarChar(50)
+  password_hash     String?             @db.VarChar(255)
+  bio               String?             @db.Text
+  avatar_url        String?             @db.VarChar(2048)
+  is_verified       Boolean?            @default(false)
+  status            UserStatus?         @default(active)
+  fcm_token         String?             @db.VarChar(255)
+  created_at        DateTime?           @default(now()) @db.Timestamp(0)
+  updated_at        DateTime?           @default(now()) @updatedAt @db.Timestamp(0)
+  blocksReceived    Block[]             @relation("Blocked")
+  blocksSent        Block[]             @relation("Blocker")
+  convsAsUser1      Conversation[]      @relation("User1")
+  convsAsUser2      Conversation[]      @relation("User2")
+  followers         Follow[]            @relation("Follower")
+  following         Follow[]            @relation("Following")
+  likes             Like[]
+  message_reactions message_reactions[]
+  hidden_messages   message_hidden[]
+  messages          Message[]
+  actions           Notification[]      @relation("Actor")
+  notifications     Notification[]      @relation("Recipient")
+  posts             Post[]
+  reposts           Repost[]
 
+  @@index([email], map: "idx_email")
+  @@index([username], map: "idx_username")
   @@map("users")
 }
 
@@ -41,21 +47,23 @@ model Post {
   parent_id     Int?
   content       String         @db.Text
   type          PostType       @default(post)
-  created_at    DateTime       @default(now())
-  deleted_at    DateTime?
-  updated_at    DateTime       @updatedAt
+  created_at    DateTime?      @default(now()) @db.Timestamp(0)
+  updated_at    DateTime?      @default(now()) @updatedAt @db.Timestamp(0)
+  deleted_at    DateTime?      @db.Timestamp(0)
   likes         Like[]
+  messages      Message[]
   notifications Notification[]
   counts        PostCount?
   hashtags      PostHashtag[]
   media         PostMedia[]
-  parent        Post?          @relation("Thread", fields: [parent_id], references: [id])
+  parent        Post?          @relation("Thread", fields: [parent_id], references: [id], onUpdate: NoAction, map: "fk_post_parent")
   replies       Post[]         @relation("Thread")
-  user          User           @relation(fields: [user_id], references: [id], onDelete: Cascade)
+  user          User           @relation(fields: [user_id], references: [id], onDelete: Cascade, onUpdate: NoAction, map: "fk_post_user")
   reposts       Repost[]
 
-  @@index([parent_id], map: "posts_parent_id_fkey")
-  @@index([user_id], map: "posts_user_id_fkey")
+  @@index([created_at], map: "idx_created_at")
+  @@index([parent_id], map: "idx_parent_id")
+  @@index([user_id], map: "idx_user_id")
   @@map("posts")
 }
 
@@ -64,81 +72,81 @@ model PostMedia {
   post_id     Int
   media_url   String    @db.VarChar(2048)
   media_type  MediaType
-  order_index Int       @default(0)
-  created_at  DateTime  @default(now())
-  post        Post      @relation(fields: [post_id], references: [id], onDelete: Cascade)
+  order_index Int?      @default(0)
+  created_at  DateTime? @default(now()) @db.Timestamp(0)
+  post        Post      @relation(fields: [post_id], references: [id], onDelete: Cascade, onUpdate: NoAction, map: "fk_media_post")
 
-  @@index([post_id], map: "post_media_post_id_fkey")
+  @@index([post_id], map: "idx_post_id")
   @@map("post_media")
 }
 
 model Follow {
-  id           Int      @id @default(autoincrement())
+  id           Int       @id @default(autoincrement())
   follower_id  Int
   following_id Int
-  created_at   DateTime @default(now())
-  follower     User     @relation("Follower", fields: [follower_id], references: [id], onDelete: Cascade)
-  following    User     @relation("Following", fields: [following_id], references: [id], onDelete: Cascade)
+  created_at   DateTime? @default(now()) @db.Timestamp(0)
+  follower     User      @relation("Follower", fields: [follower_id], references: [id], onDelete: Cascade, onUpdate: NoAction, map: "fk_follower")
+  following    User      @relation("Following", fields: [following_id], references: [id], onDelete: Cascade, onUpdate: NoAction, map: "fk_following")
 
-  @@unique([follower_id, following_id])
-  @@index([following_id], map: "follows_following_id_fkey")
+  @@unique([follower_id, following_id], map: "unique_follow")
+  @@index([following_id], map: "idx_following_id")
   @@map("follows")
 }
 
 model Block {
-  id         Int      @id @default(autoincrement())
+  id         Int       @id @default(autoincrement())
   blocker_id Int
   blocked_id Int
-  created_at DateTime @default(now())
-  blocked    User     @relation("Blocked", fields: [blocked_id], references: [id], onDelete: Cascade)
-  blocker    User     @relation("Blocker", fields: [blocker_id], references: [id], onDelete: Cascade)
+  created_at DateTime? @default(now()) @db.Timestamp(0)
+  blocked    User      @relation("Blocked", fields: [blocked_id], references: [id], onDelete: Cascade, onUpdate: NoAction, map: "fk_blocked")
+  blocker    User      @relation("Blocker", fields: [blocker_id], references: [id], onDelete: Cascade, onUpdate: NoAction, map: "fk_blocker")
 
-  @@unique([blocker_id, blocked_id])
-  @@index([blocked_id], map: "blocks_blocked_id_fkey")
+  @@unique([blocker_id, blocked_id], map: "unique_block")
+  @@index([blocked_id], map: "fk_blocked")
   @@map("blocks")
 }
 
 model Like {
-  id         Int      @id @default(autoincrement())
+  id         Int       @id @default(autoincrement())
   user_id    Int
   post_id    Int
-  created_at DateTime @default(now())
-  post       Post     @relation(fields: [post_id], references: [id], onDelete: Cascade)
-  user       User     @relation(fields: [user_id], references: [id], onDelete: Cascade)
+  created_at DateTime? @default(now()) @db.Timestamp(0)
+  post       Post      @relation(fields: [post_id], references: [id], onDelete: Cascade, onUpdate: NoAction, map: "fk_like_post")
+  user       User      @relation(fields: [user_id], references: [id], onDelete: Cascade, onUpdate: NoAction, map: "fk_like_user")
 
-  @@unique([user_id, post_id])
-  @@index([post_id], map: "likes_post_id_fkey")
+  @@unique([user_id, post_id], map: "unique_like")
+  @@index([post_id], map: "idx_post_id")
   @@map("likes")
 }
 
 model Repost {
-  id            Int      @id @default(autoincrement())
+  id            Int       @id @default(autoincrement())
   user_id       Int
   post_id       Int
-  quote_content String?  @db.Text
-  created_at    DateTime @default(now())
-  post          Post     @relation(fields: [post_id], references: [id], onDelete: Cascade)
-  user          User     @relation(fields: [user_id], references: [id], onDelete: Cascade)
+  quote_content String?   @db.Text
+  created_at    DateTime? @default(now()) @db.Timestamp(0)
+  post          Post      @relation(fields: [post_id], references: [id], onDelete: Cascade, onUpdate: NoAction, map: "fk_repost_post")
+  user          User      @relation(fields: [user_id], references: [id], onDelete: Cascade, onUpdate: NoAction, map: "fk_repost_user")
 
-  @@index([post_id], map: "reposts_post_id_fkey")
-  @@index([user_id], map: "reposts_user_id_fkey")
+  @@index([post_id], map: "idx_post_id")
+  @@index([user_id], map: "idx_user_id")
   @@map("reposts")
 }
 
 model PostCount {
   post_id       Int  @id
-  like_count    Int  @default(0)
-  comment_count Int  @default(0)
-  repost_count  Int  @default(0)
-  post          Post @relation(fields: [post_id], references: [id], onDelete: Cascade)
+  like_count    Int? @default(0) @db.UnsignedInt
+  comment_count Int? @default(0) @db.UnsignedInt
+  repost_count  Int? @default(0) @db.UnsignedInt
+  post          Post @relation(fields: [post_id], references: [id], onDelete: Cascade, onUpdate: NoAction, map: "fk_count_post")
 
   @@map("post_counts")
 }
 
 model Hashtag {
   id         Int           @id @default(autoincrement())
-  tag_name   String        @unique
-  created_at DateTime      @default(now())
+  tag_name   String        @unique(map: "tag_name") @db.VarChar(100)
+  created_at DateTime?     @default(now()) @db.Timestamp(0)
   posts      PostHashtag[]
 
   @@map("hashtags")
@@ -147,59 +155,107 @@ model Hashtag {
 model PostHashtag {
   post_id    Int
   hashtag_id Int
-  hashtag    Hashtag @relation(fields: [hashtag_id], references: [id], onDelete: Cascade)
-  post       Post    @relation(fields: [post_id], references: [id], onDelete: Cascade)
+  post       Post    @relation(fields: [post_id], references: [id], onDelete: Cascade, onUpdate: NoAction, map: "fk_hashtag_post")
+  hashtag    Hashtag @relation(fields: [hashtag_id], references: [id], onDelete: Cascade, onUpdate: NoAction, map: "fk_hashtag_tag")
 
   @@id([post_id, hashtag_id])
-  @@index([hashtag_id], map: "post_hashtags_hashtag_id_fkey")
+  @@index([hashtag_id], map: "fk_hashtag_tag")
   @@map("post_hashtags")
 }
 
 model Notification {
-  id         Int              @id @default(autoincrement())
+  id         Int                @id @default(autoincrement())
   user_id    Int
   actor_id   Int
   post_id    Int?
-  type       NotificationType
-  is_read    Boolean          @default(false)
-  created_at DateTime         @default(now())
-  actor      User             @relation("Actor", fields: [actor_id], references: [id], onDelete: Cascade)
-  post       Post?            @relation(fields: [post_id], references: [id], onDelete: Cascade)
-  user       User             @relation("Recipient", fields: [user_id], references: [id], onDelete: Cascade)
+  type       notifications_type
+  is_read    Boolean?           @default(false)
+  created_at DateTime?          @default(now()) @db.Timestamp(0)
+  actor      User               @relation("Actor", fields: [actor_id], references: [id], onDelete: Cascade, onUpdate: NoAction, map: "fk_notif_actor")
+  post       Post?              @relation(fields: [post_id], references: [id], onDelete: Cascade, onUpdate: NoAction, map: "fk_notif_post")
+  user       User               @relation("Recipient", fields: [user_id], references: [id], onDelete: Cascade, onUpdate: NoAction, map: "fk_notif_user")
 
-  @@index([actor_id], map: "notifications_actor_id_fkey")
-  @@index([post_id], map: "notifications_post_id_fkey")
-  @@index([user_id], map: "notifications_user_id_fkey")
+  @@index([actor_id], map: "fk_notif_actor")
+  @@index([post_id], map: "fk_notif_post")
+  @@index([created_at], map: "idx_created_at")
+  @@index([user_id, is_read], map: "idx_user_unread")
   @@map("notifications")
 }
 
 model Conversation {
-  id         Int       @id @default(autoincrement())
-  user1_id   Int
-  user2_id   Int
-  created_at DateTime  @default(now())
-  user1      User      @relation("User1", fields: [user1_id], references: [id], onDelete: Cascade)
-  user2      User      @relation("User2", fields: [user2_id], references: [id], onDelete: Cascade)
-  messages   Message[]
+  id                                                  Int                      @id @default(autoincrement())
+  user1_id                                            Int
+  user2_id                                            Int
+  status                                              dm_conversations_status? @default(PENDING)
+  last_message_id                                     Int?
+  last_activity_at                                    DateTime?                @db.Timestamp(0)
+  is_muted_by_a                                       Boolean?                 @default(false)
+  is_muted_by_b                                       Boolean?                 @default(false)
+  is_pinned_by_a                                      Boolean?                 @default(false)
+  is_pinned_by_b                                      Boolean?                 @default(false)
+  created_at                                          DateTime?                @default(now()) @db.Timestamp(0)
+  messages_dm_conversations_last_message_idTomessages Message?                 @relation("dm_conversations_last_message_idTomessages", fields: [last_message_id], references: [id], onUpdate: NoAction, map: "fk_conv_last_msg")
+  user1                                               User                     @relation("User1", fields: [user1_id], references: [id], onDelete: Cascade, onUpdate: NoAction, map: "fk_conv_user1")
+  user2                                               User                     @relation("User2", fields: [user2_id], references: [id], onDelete: Cascade, onUpdate: NoAction, map: "fk_conv_user2")
+  messages                                            Message[]
 
-  @@unique([user1_id, user2_id])
-  @@index([user2_id], map: "dm_conversations_user2_id_fkey")
+  @@unique([user1_id, user2_id], map: "unique_conversation")
+  @@index([last_message_id], map: "fk_conv_last_msg")
+  @@index([user2_id], map: "fk_conv_user2")
+  @@index([last_activity_at], map: "idx_last_activity")
+  @@index([status], map: "idx_status")
   @@map("dm_conversations")
 }
 
 model Message {
-  id              Int          @id @default(autoincrement())
-  conversation_id Int
-  sender_id       Int
-  content         String       @db.Text
-  is_read         Boolean      @default(false)
-  created_at      DateTime     @default(now())
-  conversation    Conversation @relation(fields: [conversation_id], references: [id], onDelete: Cascade)
-  sender          User         @relation(fields: [sender_id], references: [id], onDelete: Cascade)
+  id                                                          Int                 @id @default(autoincrement())
+  conversation_id                                             Int
+  sender_id                                                   Int
+  type                                                        messages_type?      @default(TEXT)
+  content                                                     String?             @db.Text
+  media_url                                                   String?             @db.VarChar(2048)
+  shared_post_id                                              Int?
+  status                                                      messages_status?    @default(SENT)
+  is_deleted                                                  Boolean?            @default(false)
+  deleted_at                                                  DateTime?           @db.Timestamp(0)
+  created_at                                                  DateTime?           @default(now()) @db.Timestamp(0)
+  dm_conversations_dm_conversations_last_message_idTomessages Conversation[]      @relation("dm_conversations_last_message_idTomessages")
+  message_reactions                                           message_reactions[]
+  hidden_by                                                   message_hidden[]
+  conversation                                                Conversation        @relation(fields: [conversation_id], references: [id], onDelete: Cascade, onUpdate: NoAction, map: "fk_msg_conv")
+  posts                                                       Post?               @relation(fields: [shared_post_id], references: [id], onUpdate: NoAction, map: "fk_msg_post")
+  sender                                                      User                @relation(fields: [sender_id], references: [id], onDelete: Cascade, onUpdate: NoAction, map: "fk_msg_sender")
 
-  @@index([conversation_id], map: "messages_conversation_id_fkey")
-  @@index([sender_id], map: "messages_sender_id_fkey")
+  @@index([shared_post_id], map: "fk_msg_post")
+  @@index([sender_id], map: "fk_msg_sender")
+  @@index([conversation_id, created_at], map: "idx_conv_created")
   @@map("messages")
+}
+
+model message_hidden {
+  id         Int       @id @default(autoincrement())
+  message_id Int
+  user_id    Int
+  created_at DateTime? @default(now()) @db.Timestamp(0)
+  message    Message   @relation(fields: [message_id], references: [id], onDelete: Cascade, onUpdate: NoAction, map: "fk_hidden_msg")
+  user       User      @relation(fields: [user_id], references: [id], onDelete: Cascade, onUpdate: NoAction, map: "fk_hidden_user")
+
+  @@unique([message_id, user_id], map: "unique_hidden_message_user")
+  @@index([user_id], map: "idx_hidden_user")
+  @@map("message_hidden")
+}
+
+model message_reactions {
+  id         Int       @id @default(autoincrement())
+  message_id Int
+  user_id    Int
+  emoji      String    @db.VarChar(10)
+  created_at DateTime? @default(now()) @db.Timestamp(0)
+  messages   Message   @relation(fields: [message_id], references: [id], onDelete: Cascade, onUpdate: NoAction, map: "fk_react_msg")
+  users      User      @relation(fields: [user_id], references: [id], onDelete: Cascade, onUpdate: NoAction, map: "fk_react_user")
+
+  @@unique([message_id, user_id], map: "unique_reaction")
+  @@index([user_id], map: "fk_react_user")
 }
 
 enum UserStatus {
@@ -220,10 +276,32 @@ enum MediaType {
   video
 }
 
-enum NotificationType {
+enum dm_conversations_status {
+  PENDING
+  ACTIVE
+  DECLINED
+  BLOCKED
+}
+
+enum messages_type {
+  TEXT
+  IMAGE
+  VIDEO
+  POST_SHARE
+}
+
+enum notifications_type {
   like
   reply
   follow
   repost
   mention
+  message_request
+  message_accepted
+}
+
+enum messages_status {
+  SENT
+  DELIVERED
+  READ
 }
