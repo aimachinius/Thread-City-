@@ -14,7 +14,7 @@ class AppConfig {
       }
       return 'http://10.0.2.2:3000';
     }
-    return 'https://thread-b4d7b.web.app';
+    return 'https://thread-city.onrender.com';
   }
 
   static String get baseUrl => '$serverUrl/api';

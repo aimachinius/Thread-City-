@@ -17,7 +17,7 @@ try {
         const renderSecretPath = '/etc/secrets/serviceAccountKey.json';
 
         if (process.env.FIREBASE_SERVICE_ACCOUNT) {
-            // Trường hợp 1: Truyền JSON qua biến môi trường trên Cloud
+
             const serviceAccount = JSON.parse(process.env.FIREBASE_SERVICE_ACCOUNT);
             app = initializeApp({
                 credential: cert(serviceAccount),
@@ -25,14 +25,13 @@ try {
             });
             console.log('🔥 Firebase Admin initialized via FIREBASE_SERVICE_ACCOUNT env');
         } else if (fs.existsSync(serviceAccountPath)) {
-            // Trường hợp 2: Chạy file local trên máy
+
             app = initializeApp({
                 credential: cert(serviceAccountPath),
                 databaseURL: "https://thread-b4d7b-default-rtdb.firebaseio.com"
             });
             console.log('🔥 Firebase Admin initialized via local file');
         } else if (fs.existsSync(renderSecretPath)) {
-            // Trường hợp 3: Dùng Secret File của Render
             app = initializeApp({
                 credential: cert(renderSecretPath),
                 databaseURL: "https://thread-b4d7b-default-rtdb.firebaseio.com"

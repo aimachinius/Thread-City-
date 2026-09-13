@@ -103,3 +103,5 @@ secrets.json
 **/.env*
 **/*.log
 sketch.txt
+
+.firebase/
