@@ -27,25 +27,25 @@
 
 ```mermaid
 graph TD
-    subgraph Client Layer [1. クライアント層 - マルチプラットフォーム]
+    subgraph ClientLayer ["1. クライアント層 - マルチプラットフォーム"]
         WebClient["Flutter Web SPA<br/>(CanvasKit / HTML Engine)"]
         MobileClient["Flutter Mobile<br/>(Android / iOS Impeller)"]
     end
 
-    subgraph Edge Layer [2. エッジ & セキュリティゲートウェイ]
+    subgraph EdgeLayer ["2. エッジ & セキュリティゲートウェイ"]
         CDN["Firebase Hosting CDN<br/>(エッジキャッシュ & 静的配信)"]
         ReverseProxy["Cloud Ingress Gateway<br/>(SSL/TLS 1.3 終端)"]
         CORS["CORS Dynamic Host Validator<br/>(オリジン検証 & モバイルバイパス)"]
     end
 
-    subgraph Application Layer [3. バックエンドエンジン - Node.js & TypeScript]
+    subgraph AppLayer ["3. バックエンドエンジン - Node.js & TypeScript"]
         ExpressApp["Express.js 5.x REST Gateway<br/>(コントローラー、ミドルウェア、ルート)"]
         SocketEngine["Socket.IO 4.x WebSocket Gateway<br/>(ルーム管理 & プレゼンスエンジン)"]
         AuthGuard["Firebase Admin SDK<br/>(暗号署名JWTトークン検証)"]
         PrismaEngine["Prisma 6.x ORM Query Engine<br/>(コネクションプール & ACIDトランザクション)"]
     end
 
-    subgraph Distributed Data Layer [4. 分散データ & メッセージブローカー層]
+    subgraph DataLayer ["4. 分散データ & メッセージブローカー層"]
         RedisCluster[("Upstash Redis Cluster<br/>(Pub/Sub アダプター & セッション状態)")]
         DistributedDB[("TiDB Cloud Serverless<br/>(分散リレーショナルMySQLエンジン)")]
         MediaStorage[("Firebase Cloud Storage<br/>(暗号化マルチメディアCDNバケット)")]
@@ -66,7 +66,8 @@ graph TD
     ExpressApp --> PrismaEngine
     SocketEngine <-->|クラスタ水平スケーリング & ルーム同期| RedisCluster
     PrismaEngine <-->|コネクションプール / SSL Strict| DistributedDB
-    Client Layer -.->|署名付き直接アップロード / ダウンロード| MediaStorage
+    WebClient -.->|署名付き直接アップロード / ダウンロード| MediaStorage
+    MobileClient -.->|署名付き直接アップロード / ダウンロード| MediaStorage
 ```
 
 ---
@@ -79,22 +80,22 @@ Flutterクライアントは **MVVM (Model - View - ViewModel)** パターン、
 flowchart LR
     subgraph AppFlow ["アプリ初期化フロー (App Flow)"]
         direction LR
-        APP["1. APP<br/>(main.dart)"] --> ProvidersInit["2. Providers<br/>(MultiProvider 登録)"]
-        ProvidersInit --> Material["3. Material App<br/>(テーマ & 多言語)"]
-        Material --> Routes["4. Routes<br/>(画面ルーティング)"]
-        Routes --> View["5. View<br/>(Screens & Widgets)"]
+        APP("1. APP<br/>main.dart") --> ProvidersInit("2. Providers<br/>MultiProvider 登録")
+        ProvidersInit --> Material("3. Material App<br/>テーマ & 多言語")
+        Material --> Routes("4. Routes<br/>画面ルーティング")
+        Routes --> View("5. View<br/>Screens & Widgets")
     end
 
     subgraph MVVMArchitecture ["MVVM パターン & 依存性注入"]
         direction LR
-        View -->|"状態の監視 / アクションのディスパッチ"| ProvidersVM["Providers<br/>(View Model / ChangeNotifier)"]
-        Repo["Repository<br/>(HTTP & Socket Client)" ] -->|"依存性の注入 (DI)<br/>(Constructor Injection)"| ProvidersVM
-        Repo -->|"シリアライズ / デシリアライズ"| Model["Model<br/>(エンティティ / DTO)"]
+        View -->|"状態の監視 / アクションのディスパッチ"| ProvidersVM("Providers<br/>View Model / ChangeNotifier")
+        Repo("Repository<br/>HTTP & Socket Client") -->|"依存性の注入 (DI)<br/>Constructor Injection"| ProvidersVM
+        Repo -->|"シリアライズ / デシリアライズ"| Model("Model<br/>エンティティ / DTO")
         ProvidersVM -->|"notifyListeners() / UI再描画"| View
     end
 
-    classDef blueBox fill:#1976D2,stroke:#0D47A1,stroke-width:2px,color:#fff,rx:14px,ry:14px;
-    classDef purpleBox fill:#673AB7,stroke:#311B92,stroke-width:2px,color:#fff,rx:14px,ry:14px;
+    classDef blueBox fill:#1976D2,stroke:#0D47A1,stroke-width:2px,color:#fff;
+    classDef purpleBox fill:#673AB7,stroke:#311B92,stroke-width:2px,color:#fff;
     class APP,ProvidersInit,Material,Routes,Repo blueBox;
     class View,ProvidersVM,Model purpleBox;
 ```
@@ -162,13 +163,24 @@ flowchart TD
     end
 
     HTTPReq --> CORS
-    CORS --> Helmet --> Logger --> AuthGuard
+    CORS --> Helmet
+    Helmet --> Logger
+    Logger --> AuthGuard
 
-    AuthGuard --> AuthRouter --> AuthCtrl
-    AuthGuard --> PostRouter --> PostCtrl
-    AuthGuard --> UserRouter --> UserCtrl
-    AuthGuard --> MsgRouter --> MsgCtrl
-    AuthGuard --> NotiRouter --> NotiCtrl
+    AuthGuard --> AuthRouter
+    AuthRouter --> AuthCtrl
+
+    AuthGuard --> PostRouter
+    PostRouter --> PostCtrl
+
+    AuthGuard --> UserRouter
+    UserRouter --> UserCtrl
+
+    AuthGuard --> MsgRouter
+    MsgRouter --> MsgCtrl
+
+    AuthGuard --> NotiRouter
+    NotiRouter --> NotiCtrl
 
     WSReq --> SocketGateway
     SocketGateway <--> SocketAuth
@@ -176,7 +188,11 @@ flowchart TD
     RoomManager <--> RedisAdapter
     RedisAdapter <-->|Redis Protocol SSL| UpstashRedis
 
-    AuthCtrl & PostCtrl & UserCtrl & MsgCtrl & NotiCtrl --> PrismaORM
+    AuthCtrl --> PrismaORM
+    PostCtrl --> PrismaORM
+    UserCtrl --> PrismaORM
+    MsgCtrl --> PrismaORM
+    NotiCtrl --> PrismaORM
     RoomManager -.->|メッセージ & ステータス保存| PrismaORM
     PrismaORM <-->|MySQL Protocol (Strict SSL)| TiDBDB
 ```
@@ -248,31 +264,31 @@ Thread-City-/
 
 ```mermaid
 erDiagram
-    users ||--o{ posts : "creates (1:N)"
-    users ||--o{ likes : "likes (1:N)"
-    users ||--o{ reposts : "reposts (1:N)"
-    users ||--o{ follows : "follows (1:N)"
-    users ||--o{ blocks : "blocks (1:N)"
+    users ||--o{ posts : "creates"
+    users ||--o{ likes : "likes"
+    users ||--o{ reposts : "reposts"
+    users ||--o{ follows : "follows"
+    users ||--o{ blocks : "blocks"
     users ||--o{ notifications : "receives_or_triggers"
-    users ||--o{ conversations : "participant_1_or_2"
-    conversations ||--o{ messages : "contains (1:N)"
-    posts ||--o{ posts : "replies_to_parent (1:N 再帰的)"
-    posts ||--o| post_counts : "denormalized_counters (1:1)"
-    posts ||--o{ post_media : "contains_media (1:N)"
-    posts ||--o{ post_hashtags : "tagged_with (1:N)"
-    hashtags ||--o{ post_hashtags : "categorizes (1:N)"
+    users ||--o{ conversations : "participant"
+    conversations ||--o{ messages : "contains"
+    posts ||--o{ posts : "replies_to_parent"
+    posts ||--o| post_counts : "denormalized_counters"
+    posts ||--o{ post_media : "contains_media"
+    posts ||--o{ post_hashtags : "tagged_with"
+    hashtags ||--o{ post_hashtags : "categorizes"
 
     users {
         int id PK
-        string firebase_uid UK "Firebase UIDマッピング"
+        string firebase_uid UK
         string username UK
         string email UK
         string nickname
         string bio
         string avatar_url
         boolean is_verified
-        enum status "active, banned, deactivated"
-        string fcm_token "プッシュ通知デバイストークン"
+        string status
+        string fcm_token
         timestamp created_at
         timestamp updated_at
     }
@@ -280,17 +296,17 @@ erDiagram
     posts {
         int id PK
         int user_id FK
-        int parent_id FK "再帰的スレッド外部キー"
+        int parent_id FK
         text content
-        enum type "post, comment, reply, quote"
-        timestamp created_at "インデックス idx_created_at"
+        string type
+        timestamp created_at
         timestamp updated_at
-        timestamp deleted_at "論理削除フラグ"
+        timestamp deleted_at
     }
 
     post_counts {
         int post_id PK, FK
-        int like_count "原子的インクリメント/デクリメント"
+        int like_count
         int comment_count
         int repost_count
     }
@@ -299,7 +315,7 @@ erDiagram
         int id PK
         int post_id FK
         string media_url
-        enum media_type "image, video, gif"
+        string media_type
         int order_index
     }
 
