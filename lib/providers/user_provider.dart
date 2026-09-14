@@ -1,4 +1,5 @@
 import 'dart:io';
+import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter/material.dart';
 import 'package:firebase_storage/firebase_storage.dart';
 import 'package:image_picker/image_picker.dart';
@@ -67,6 +68,15 @@ class UserProvider extends ChangeNotifier {
       return await _postRepository.getPostsByUserUid(firebaseUid, viewerUid: viewerUid);
     } catch (e) {
       print('Lỗi getUserPostsOnly: $e');
+      return [];
+    }
+  }
+
+  Future<List<PostModel>> getUserRepostsOnly(String firebaseUid, {String? viewerUid}) async {
+    try {
+      return await _postRepository.getUserReposts(firebaseUid, viewerUid: viewerUid);
+    } catch (e) {
+      print('Lỗi getUserRepostsOnly: $e');
       return [];
     }
   }
@@ -140,7 +150,17 @@ class UserProvider extends ChangeNotifier {
           .child('avatars')
           .child('$firebaseUid.jpg');
 
-      final uploadTask = storageRef.putFile(File(image.path));
+      UploadTask uploadTask;
+      if (kIsWeb) {
+        final bytes = await image.readAsBytes();
+        final mimeType = image.mimeType ?? 'image/jpeg';
+        uploadTask = storageRef.putData(
+          bytes, 
+          SettableMetadata(contentType: mimeType)
+        );
+      } else {
+        uploadTask = storageRef.putFile(File(image.path));
+      }
       
       // Chờ quá trình upload hoàn tất trực tiếp và an toàn
       final snapshot = await uploadTask;
@@ -195,6 +215,18 @@ class UserProvider extends ChangeNotifier {
       _userPosts[index] = post.copyWith(
         isLiked: isLiked,
         likeCount: isLiked ? post.likeCount + 1 : post.likeCount - 1,
+      );
+      notifyListeners();
+    }
+  }
+
+  void updatePostRepost(int postId, bool isReposted) {
+    final index = _userPosts.indexWhere((p) => p.id == postId);
+    if (index != -1) {
+      final post = _userPosts[index];
+      _userPosts[index] = post.copyWith(
+        isReposted: isReposted,
+        repostCount: isReposted ? post.repostCount + 1 : post.repostCount - 1,
       );
       notifyListeners();
     }

@@ -7,7 +7,7 @@ USE thread_city;
 
 -- 1. Users Table
 CREATE TABLE users (
-    id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+    id INT AUTO_INCREMENT PRIMARY KEY,
     firebase_uid VARCHAR(128) NOT NULL UNIQUE, -- [NEW] Liên kết Firebase
     username VARCHAR(30) NOT NULL UNIQUE,
     email VARCHAR(255) NOT NULL UNIQUE,
@@ -17,6 +17,7 @@ CREATE TABLE users (
     avatar_url VARCHAR(2048),
     is_verified BOOLEAN DEFAULT FALSE, -- [NEW] Tích xanh
     status ENUM('active', 'banned', 'deactivated') DEFAULT 'active', -- [NEW] Trạng thái tài khoản
+    fcm_token VARCHAR(255) NULL,
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
     INDEX idx_username (username),
@@ -25,9 +26,9 @@ CREATE TABLE users (
 
 -- 2. Posts Table (Handles Posts, Comments, Replies, Quotes)
 CREATE TABLE posts (
-    id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
-    user_id BIGINT UNSIGNED NOT NULL,
-    parent_id BIGINT UNSIGNED DEFAULT NULL,
+    id INT AUTO_INCREMENT PRIMARY KEY,
+    user_id INT NOT NULL,
+    parent_id INT DEFAULT NULL,
     content TEXT NOT NULL,
     type ENUM('post', 'comment', 'reply', 'quote') NOT NULL DEFAULT 'post',
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
@@ -44,8 +45,8 @@ CREATE TABLE posts (
 
 -- 3. [NEW] Post Media Table (Support multiple images/videos per post)
 CREATE TABLE post_media (
-    id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
-    post_id BIGINT UNSIGNED NOT NULL,
+    id INT AUTO_INCREMENT PRIMARY KEY,
+    post_id INT NOT NULL,
     media_url VARCHAR(2048) NOT NULL,
     media_type ENUM('image', 'video') NOT NULL,
     order_index INT DEFAULT 0, -- Thứ tự hiển thị
@@ -57,9 +58,9 @@ CREATE TABLE post_media (
 
 -- 4. Follows Table
 CREATE TABLE follows (
-    id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
-    follower_id BIGINT UNSIGNED NOT NULL,
-    following_id BIGINT UNSIGNED NOT NULL,
+    id INT AUTO_INCREMENT PRIMARY KEY,
+    follower_id INT NOT NULL,
+    following_id INT NOT NULL,
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     
     CONSTRAINT fk_follower FOREIGN KEY (follower_id) REFERENCES users(id) ON DELETE CASCADE,
@@ -71,9 +72,9 @@ CREATE TABLE follows (
 
 -- 5. [NEW] Blocks Table
 CREATE TABLE blocks (
-    id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
-    blocker_id BIGINT UNSIGNED NOT NULL,
-    blocked_id BIGINT UNSIGNED NOT NULL,
+    id INT AUTO_INCREMENT PRIMARY KEY,
+    blocker_id INT NOT NULL,
+    blocked_id INT NOT NULL,
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
 
     CONSTRAINT fk_blocker FOREIGN KEY (blocker_id) REFERENCES users(id) ON DELETE CASCADE,
@@ -83,9 +84,9 @@ CREATE TABLE blocks (
 
 -- 6. Likes Table
 CREATE TABLE likes (
-    id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
-    user_id BIGINT UNSIGNED NOT NULL,
-    post_id BIGINT UNSIGNED NOT NULL,
+    id INT AUTO_INCREMENT PRIMARY KEY,
+    user_id INT NOT NULL,
+    post_id INT NOT NULL,
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     
     CONSTRAINT fk_like_user FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,
@@ -97,9 +98,9 @@ CREATE TABLE likes (
 
 -- 7. Reposts Table
 CREATE TABLE reposts (
-    id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
-    user_id BIGINT UNSIGNED NOT NULL,
-    post_id BIGINT UNSIGNED NOT NULL,
+    id INT AUTO_INCREMENT PRIMARY KEY,
+    user_id INT NOT NULL,
+    post_id INT NOT NULL,
     quote_content TEXT DEFAULT NULL,
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     
@@ -112,7 +113,7 @@ CREATE TABLE reposts (
 
 -- 8. Post Counts
 CREATE TABLE post_counts (
-    post_id BIGINT UNSIGNED PRIMARY KEY,
+    post_id INT PRIMARY KEY,
     like_count INT UNSIGNED DEFAULT 0,
     comment_count INT UNSIGNED DEFAULT 0,
     repost_count INT UNSIGNED DEFAULT 0,
@@ -122,37 +123,28 @@ CREATE TABLE post_counts (
 
 -- 9. [NEW] Hashtags & Mapping
 CREATE TABLE hashtags (
-    id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+    id INT AUTO_INCREMENT PRIMARY KEY,
     tag_name VARCHAR(100) NOT NULL UNIQUE,
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 CREATE TABLE post_hashtags (
-    post_id BIGINT UNSIGNED NOT NULL,
-    hashtag_id BIGINT UNSIGNED NOT NULL,
+    post_id INT NOT NULL,
+    hashtag_id INT NOT NULL,
     PRIMARY KEY (post_id, hashtag_id),
     CONSTRAINT fk_hashtag_post FOREIGN KEY (post_id) REFERENCES posts(id) ON DELETE CASCADE,
     CONSTRAINT fk_hashtag_tag FOREIGN KEY (hashtag_id) REFERENCES hashtags(id) ON DELETE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
-CREATE TABLE post_media (
-    id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
-    post_id BIGINT UNSIGNED NOT NULL,
-    media_url VARCHAR(2048) NOT NULL,
-    media_type ENUM('image', 'video') DEFAULT 'image',
-    order_index INT DEFAULT 0,
-    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-    CONSTRAINT fk_media_post FOREIGN KEY (post_id) REFERENCES posts(id) ON DELETE CASCADE,
-    INDEX idx_media_post (post_id)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+-- (post_media đã được định nghĩa ở mục 3 phía trên)
 
 -- 10. Notifications Table
 CREATE TABLE notifications (
-    id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
-    user_id BIGINT UNSIGNED NOT NULL,
-    actor_id BIGINT UNSIGNED NOT NULL,
-    post_id BIGINT UNSIGNED DEFAULT NULL,
-    type ENUM('like', 'reply', 'follow', 'repost', 'mention') NOT NULL,
+    id INT AUTO_INCREMENT PRIMARY KEY,
+    user_id INT NOT NULL,
+    actor_id INT NOT NULL,
+    post_id INT DEFAULT NULL,
+    type ENUM('like', 'reply', 'follow', 'repost', 'mention','message_request','message_accepted') NOT NULL,
     is_read BOOLEAN DEFAULT FALSE,
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     
@@ -166,27 +158,63 @@ CREATE TABLE notifications (
 
 -- 11. DM Conversations
 CREATE TABLE dm_conversations (
-    id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
-    user1_id BIGINT UNSIGNED NOT NULL,
-    user2_id BIGINT UNSIGNED NOT NULL,
-    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-    
+    id              INT AUTO_INCREMENT PRIMARY KEY,
+    user1_id        INT NOT NULL,
+    user2_id        INT NOT NULL,
+    status          ENUM('PENDING', 'ACTIVE', 'DECLINED', 'BLOCKED') DEFAULT 'PENDING',
+    last_message_id INT NULL,
+    last_activity_at TIMESTAMP NULL,
+    is_muted_by_a   BOOLEAN DEFAULT FALSE,
+    is_muted_by_b   BOOLEAN DEFAULT FALSE,
+    is_pinned_by_a  BOOLEAN DEFAULT FALSE,
+    is_pinned_by_b  BOOLEAN DEFAULT FALSE,
+    created_at      TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+
     CONSTRAINT fk_conv_user1 FOREIGN KEY (user1_id) REFERENCES users(id) ON DELETE CASCADE,
     CONSTRAINT fk_conv_user2 FOREIGN KEY (user2_id) REFERENCES users(id) ON DELETE CASCADE,
-    UNIQUE KEY unique_conversation (user1_id, user2_id)
+    -- last_message_id FK được thêm sau khi bảng messages tồn tại
+    UNIQUE KEY unique_conversation (user1_id, user2_id),
+    INDEX idx_status (status),
+    INDEX idx_last_activity (last_activity_at)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
--- 12. [NEW] Messages Table (The actual chat history)
-CREATE TABLE messages (
-    id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
-    conversation_id BIGINT UNSIGNED NOT NULL,
-    sender_id BIGINT UNSIGNED NOT NULL,
-    content TEXT NOT NULL,
-    is_read BOOLEAN DEFAULT FALSE,
-    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
 
-    CONSTRAINT fk_msg_conv FOREIGN KEY (conversation_id) REFERENCES dm_conversations(id) ON DELETE CASCADE,
-    CONSTRAINT fk_msg_sender FOREIGN KEY (sender_id) REFERENCES users(id) ON DELETE CASCADE,
+-- 12. Messages Table
+CREATE TABLE messages (
+    id              INT AUTO_INCREMENT PRIMARY KEY,
+    conversation_id INT NOT NULL,
+    sender_id       INT NOT NULL,
+    type            ENUM('TEXT', 'IMAGE', 'VIDEO', 'POST_SHARE') DEFAULT 'TEXT',
+    content         TEXT NULL,                  -- NULL cho phép tin nhắn chỉ có media
+    media_url       VARCHAR(2048) NULL,
+    shared_post_id  INT NULL,
+    status          ENUM('SENT', 'DELIVERED', 'READ') DEFAULT 'SENT',
+    is_deleted      BOOLEAN   DEFAULT FALSE,
+    deleted_at      TIMESTAMP NULL,
+    created_at      TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+
+    CONSTRAINT fk_msg_conv   FOREIGN KEY (conversation_id) REFERENCES dm_conversations(id) ON DELETE CASCADE,
+    CONSTRAINT fk_msg_sender FOREIGN KEY (sender_id)       REFERENCES users(id)            ON DELETE CASCADE,
+    CONSTRAINT fk_msg_post   FOREIGN KEY (shared_post_id)  REFERENCES posts(id)            ON DELETE SET NULL,
+
     INDEX idx_conv_created (conversation_id, created_at)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
+-- 13. Message Reactions
+CREATE TABLE message_reactions (
+    id         INT AUTO_INCREMENT PRIMARY KEY,
+    message_id INT NOT NULL,
+    user_id    INT NOT NULL,
+    emoji      VARCHAR(10)     NOT NULL,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+
+    UNIQUE KEY unique_reaction (message_id, user_id),
+    CONSTRAINT fk_react_msg  FOREIGN KEY (message_id) REFERENCES messages(id) ON DELETE CASCADE,
+    CONSTRAINT fk_react_user FOREIGN KEY (user_id)    REFERENCES users(id)    ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- 14. Deferred FK: dm_conversations.last_message_id → messages
+--     Phải đặt ở đây vì lúc tạo dm_conversations, bảng messages chưa tồn tại
+ALTER TABLE dm_conversations
+    ADD CONSTRAINT fk_conv_last_msg
+    FOREIGN KEY (last_message_id) REFERENCES messages(id) ON DELETE SET NULL;

@@ -1,6 +1,7 @@
 import 'dart:convert';
-import 'package:http/http.dart' as http;
 import 'package:firebase_auth/firebase_auth.dart';
+import 'package:flutter/foundation.dart' show kIsWeb, debugPrint;
+import 'package:http/http.dart' as http;
 
 class AuthRepository {
   final String authUrl;
@@ -10,6 +11,42 @@ class AuthRepository {
   static const String _firebaseApiKey = 'AIzaSyBME4T6l-Pr93AdCOaELTnIF7HmLZIq9z0';
 
   AuthRepository(this.authUrl);
+
+  /// Đăng nhập / Đăng ký bằng Google
+  Future<Map<String, dynamic>> signInWithGoogle() async {
+    debugPrint('[AUTH] 🔑 Bắt đầu Google Sign-In...');
+    try {
+      final GoogleAuthProvider googleProvider = GoogleAuthProvider();
+      googleProvider.addScope('email');
+      googleProvider.addScope('profile');
+
+      UserCredential userCredential;
+      if (kIsWeb) {
+        // Web: dùng Popup
+        userCredential = await _firebaseAuth.signInWithPopup(googleProvider);
+      } else {
+        // Mobile: dùng redirect
+        userCredential = await _firebaseAuth.signInWithProvider(googleProvider);
+      }
+
+      final user = userCredential.user!;
+      debugPrint('[AUTH] ✅ Google Sign-In thành công: ${user.displayName}');
+
+      return {
+        'localId': user.uid,
+        'email': user.email ?? '',
+        'displayName': user.displayName ?? '',
+        'photoUrl': user.photoURL ?? '',
+        'isNewUser': userCredential.additionalUserInfo?.isNewUser ?? false,
+      };
+    } on FirebaseAuthException catch (e) {
+      debugPrint('[AUTH][GOOGLE_ERROR] ${e.code}: ${e.message}');
+      throw Exception(e.message ?? 'Đăng nhập Google thất bại');
+    } catch (e) {
+      debugPrint('[AUTH][GOOGLE_UNKNOWN] $e');
+      throw Exception('Đăng nhập Google thất bại: $e');
+    }
+  }
 
   /// Đăng ký bằng Firebase SDK
   Future<Map<String, dynamic>> signUpWithSDK({
@@ -134,57 +171,69 @@ class AuthRepository {
   }
   --- */
 
-  /// Lấy thông tin user từ MySQL theo firebase_uid
+  /// Lấy thông tin user từ MySQL theo firebase_uid (có retry 1 lần khi timeout)
   Future<Map<String, dynamic>?> getUserByFirebaseUid(String uid) async {
-    try {
-      final response = await http.get(
-        Uri.parse('$authUrl/by-uid/$uid'),
-        headers: {'Content-Type': 'application/json'},
-      ).timeout(const Duration(seconds: 10)); // Thêm timeout
-      
-      if (response.statusCode == 200) {
-        return jsonDecode(response.body);
+    for (int attempt = 1; attempt <= 2; attempt++) {
+      try {
+        final response = await http.get(
+          Uri.parse('$authUrl/by-uid/$uid'),
+          headers: {
+            'Content-Type': 'application/json',
+            'ngrok-skip-browser-warning': 'true',
+          },
+        ).timeout(const Duration(seconds: 15));
+
+        if (response.statusCode == 200) {
+          return jsonDecode(response.body);
+        }
+        return null;
+      } catch (e) {
+        if (attempt == 2) {
+          print('[AUTH] ⚠️ Lỗi kết nối MySQL (sau $attempt lần thử): $e');
+          return null;
+        }
+        // Lần 1 timeout → đợi 2 giây rồi thử lại (server có thể đang wake up)
+        print('[AUTH] 🔄 Retry kết nối MySQL (lần $attempt)...');
+        await Future.delayed(const Duration(seconds: 2));
       }
-      return null;
-    } catch (e) {
-      print('[AUTH] ⚠️ Lỗi kết nối MySQL: $e');
-      return null;
     }
+    return null;
   }
 
   Future<void> registerUserToMySQL({
     required String uid,
     required String email,
     required String username,
+    String? nickname,
   }) async {
     final url = Uri.parse('$authUrl/register');
-    print('[AUTH] 🌐 Đang gọi API MySQL: $url');
-    print('[AUTH] 📦 Body: ${{
-      'firebase_uid': uid,
-      'email': email,
-      'username': username,
-    }}');
+    debugPrint('[AUTH] 🌐 Đang gọi API MySQL: $url');
 
     try {
       final response = await http.post(
         url,
-        headers: {'Content-Type': 'application/json'},
+        headers: {
+          'Content-Type': 'application/json',
+          'ngrok-skip-browser-warning': 'true',
+        },
         body: jsonEncode({
           'firebase_uid': uid,
           'email': email,
           'username': username,
+          if (nickname != null) 'nickname': nickname,
         }),
       ).timeout(const Duration(seconds: 10));
 
-      print('[AUTH] 📥 Phản hồi MySQL: ${response.statusCode}');
+      debugPrint('[AUTH] 📥 Phản hồi MySQL: ${response.statusCode}');
 
-      if (response.statusCode != 201) {
+      // 201 = mới tạo, 200 = đã tồn tại (Google re-login) — cả 2 đều OK
+      if (response.statusCode != 201 && response.statusCode != 200) {
         final errorData = jsonDecode(response.body);
-        print('[AUTH] ❌ Lỗi MySQL: ${errorData['message']}');
+        debugPrint('[AUTH] ❌ Lỗi MySQL: ${errorData['message']}');
         throw Exception(errorData['message'] ?? 'Lỗi đăng ký server');
       }
     } catch (e) {
-      print('[AUTH] 🚨 Lỗi kết nối/timeout MySQL: $e');
+      debugPrint('[AUTH] 🚨 Lỗi kết nối/timeout MySQL: $e');
       rethrow;
     }
   }

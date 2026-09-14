@@ -15,7 +15,7 @@ class PostProvider extends ChangeNotifier {
   bool get isLoading => _isLoading;
   String? get errorMessage => _errorMessage;
 
-  Future<bool> createPost({
+  Future<PostModel?> createPost({
     required String firebaseUid,
     required String content,
     int? parentId,
@@ -27,17 +27,17 @@ class PostProvider extends ChangeNotifier {
     notifyListeners();
 
     try {
-      await _postRepository.createPost(
+      final post = await _postRepository.createPost(
         firebaseUid: firebaseUid,
         content: content,
         parentId: parentId,
         type: type,
         media: media,
       );
-      return true;
+      return post;
     } catch (e) {
       _errorMessage = e.toString();
-      return false;
+      return null;
     } finally {
       _isLoading = false;
       notifyListeners();
@@ -64,6 +64,18 @@ class PostProvider extends ChangeNotifier {
     } catch (e) {
       print('Lỗi getReplies: $e');
       return [];
+    }
+  }
+
+  Future<bool> toggleRepost(int postId, String firebaseUid) async {
+    try {
+      return await _postRepository.toggleRepost(
+        postId: postId,
+        firebaseUid: firebaseUid,
+      );
+    } catch (e) {
+      print('Lỗi toggleRepost: $e');
+      return false;
     }
   }
 }

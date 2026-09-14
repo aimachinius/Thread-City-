@@ -26,7 +26,7 @@ class UserRepository implements IUserRepository {
       if (viewerUid != null) {
         url += '?viewer_uid=$viewerUid';
       }
-      final response = await http.get(Uri.parse(url)).timeout(const Duration(seconds: 10));
+      final response = await http.get(Uri.parse(url), headers: {'Content-Type': 'application/json', 'ngrok-skip-browser-warning': 'true'}).timeout(const Duration(seconds: 10));
 
       if (response.statusCode == 200) {
         final data = jsonDecode(response.body);
@@ -54,7 +54,7 @@ class UserRepository implements IUserRepository {
 
       final response = await http.patch(
         Uri.parse('$baseUrl/users/$firebaseUid'),
-        headers: {'Content-Type': 'application/json'},
+        headers: {'Content-Type': 'application/json', 'ngrok-skip-browser-warning': 'true'},
         body: jsonEncode(body),
       ).timeout(const Duration(seconds: 10));
 
@@ -72,7 +72,7 @@ class UserRepository implements IUserRepository {
     try {
       final response = await http.post(
         Uri.parse('$baseUrl/users/follow'),
-        headers: {'Content-Type': 'application/json'},
+        headers: {'Content-Type': 'application/json', 'ngrok-skip-browser-warning': 'true'},
         body: jsonEncode({
           'follower_uid': followerUid,
           'following_id': followingId,
@@ -93,7 +93,7 @@ class UserRepository implements IUserRepository {
     try {
       final response = await http.post(
         Uri.parse('$baseUrl/users/unfollow'),
-        headers: {'Content-Type': 'application/json'},
+        headers: {'Content-Type': 'application/json', 'ngrok-skip-browser-warning': 'true'},
         body: jsonEncode({
           'follower_uid': followerUid,
           'following_id': followingId,

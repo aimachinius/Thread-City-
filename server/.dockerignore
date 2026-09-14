@@ -1,0 +1,11 @@
+node_modules
+npm-debug.log
+dist
+.env
+.env.*
+!.env.example
+!.env.production.example
+serviceAccountKey.json
+.git
+.gitignore
+README.md

@@ -6,6 +6,8 @@ dotenv.config();
 const redis = new Redis({
     host: process.env.REDIS_HOST || 'localhost',
     port: Number(process.env.REDIS_PORT) || 6379,
+    maxRetriesPerRequest: null, // Không crash sau N lần retry
+    retryStrategy: (times) => Math.min(times * 200, 5000), // Backoff tối đa 5s
 });
 
 redis.on('connect', () => {
@@ -13,7 +15,7 @@ redis.on('connect', () => {
 });
 
 redis.on('error', (err: any) => {
-    console.error('❌ Redis Error:', err);
+    console.error('❌ Redis Error:', err.message);
 });
 
 export default redis;

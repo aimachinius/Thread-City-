@@ -56,11 +56,14 @@ class AuthProvider extends ChangeNotifier {
   Future<bool> signUp({
     required String email,
     required String password,
-    required String username,
+    required String firstName,
+    required String lastName,
   }) async {
     _isLoading = true;
     _errorMessage = null;
     notifyListeners();
+
+    final nickname = '$firstName $lastName'.trim();
 
     if (password.length < 6) {
       _errorMessage = 'Mật khẩu phải có ít nhất 6 ký tự';
@@ -68,12 +71,16 @@ class AuthProvider extends ChangeNotifier {
       notifyListeners();
       return false;
     }
+    if (nickname.isEmpty) {
+      _errorMessage = 'Vui lòng nhập họ và tên';
+      _isLoading = false;
+      notifyListeners();
+      return false;
+    }
 
     try {
-      print('---------------------------------------');
-      print('[AUTH] 🚀 Bắt đầu đăng ký qua Firebase SDK...');
-      print('[AUTH] 📧 Email: $email');
-      print('[AUTH] ⏰ Time: ${DateTime.now()}');
+      debugPrint('---------------------------------------');
+      debugPrint('[AUTH] 🚀 Bắt đầu đăng ký qua Firebase SDK...');
 
       // BƯỚC 1: Đăng ký qua Firebase SDK
       final Map<String, dynamic> result = await _authRepository.signUpWithSDK(
@@ -82,35 +89,54 @@ class AuthProvider extends ChangeNotifier {
       );
 
       final String uid = result['localId'];
+      debugPrint('[AUTH] ✅ Firebase UID: $uid');
 
-      print('[AUTH] ✅ Firebase UID: $uid');
-      print('[AUTH] 🌐 Đang đồng bộ sang MySQL...');
+      // BƯỚC 2: Đồng bộ sang MySQL — nếu fail vẫn cho vào app
+      bool mysqlOk = false;
+      String? mysqlWarning;
+      try {
+        debugPrint('[AUTH] 🌐 Đang đồng bộ sang MySQL...');
+        await _authRepository.registerUserToMySQL(
+          uid: uid,
+          email: email,
+          username: nickname, // Placeholder; server sẽ sinh username thực từ nickname
+          nickname: nickname,
+        );
+        mysqlOk = true;
+        debugPrint('[AUTH] 🎉 Đăng ký hoàn tất!');
+      } catch (mysqlError) {
+        // Firebase đã tạo user thành công, nhưng MySQL thất bại
+        // → Vẫn cho vào app, hiện cảnh báo thay vì block
+        debugPrint('[AUTH] ⚠️ MySQL sync thất bại: $mysqlError');
+        mysqlWarning = 'Tạo tài khoản thành công nhưng server đang bận. '
+            'Một số tính năng có thể bị giới hạn tạm thời.';
+      }
 
-      await _authRepository.registerUserToMySQL(
-        uid: uid,
-        email: email,
-        username: username,
-      );
-
+      // Thiết lập data local dù MySQL fail hay không
       _currentUserData = {
         'firebase_uid': uid,
         'email': email,
-        'username': username,
+        'nickname': nickname,
+        'username': nickname, // Sẽ bị ghi đè bởi auth listener khi MySQL sync xong
+        'mysql_synced': mysqlOk,
       };
 
-      print('[AUTH] 🎉 Đăng ký hoàn tất!');
+      if (mysqlWarning != null) {
+        _errorMessage = mysqlWarning; // Dùng như warning, không block login
+      }
 
       _isLoading = false;
       notifyListeners();
-      return true;
+      return true; // ✅ Luôn trả true nếu Firebase ok
 
     } on Exception catch (e, stackTrace) {
       final errorMsg = e.toString();
-      print('=================================');
-      print('[AUTH][ERROR] $errorMsg');
-      print('[AUTH] StackTrace: $stackTrace');
-      print('=================================');
+      debugPrint('=================================');
+      debugPrint('[AUTH][ERROR] $errorMsg');
+      debugPrint('[AUTH] StackTrace: $stackTrace');
+      debugPrint('=================================');
 
+      // Lỗi này chỉ từ Firebase (email tồn tại, mật khẩu yếu,...)
       if (errorMsg.contains('EMAIL_EXISTS')) {
         _errorMessage = 'Email này đã được sử dụng rồi!';
       } else if (errorMsg.contains('WEAK_PASSWORD')) {
@@ -118,7 +144,7 @@ class AuthProvider extends ChangeNotifier {
       } else if (errorMsg.contains('INVALID_EMAIL')) {
         _errorMessage = 'Địa chỉ email không hợp lệ!';
       } else {
-        _errorMessage = 'Lỗi: $errorMsg';
+        _errorMessage = 'Lỗi đăng ký: $errorMsg';
       }
     }
 
@@ -152,15 +178,17 @@ class AuthProvider extends ChangeNotifier {
       final mysqlUser = await _authRepository.getUserByFirebaseUid(uid);
       
       if (mysqlUser != null) {
-        print('[AUTH] ✅ Đã tìm thấy user trong MySQL: ${mysqlUser['username']}');
+        debugPrint('[AUTH] ✅ Đã tìm thấy user trong MySQL: ${mysqlUser['username']}');
         _currentUserData = mysqlUser;
       } else {
-        print('[AUTH] ⚠️ Không tìm thấy user trong MySQL (Có thể chưa đồng bộ)');
-        // Nếu không có trong MySQL, tạo một object cơ bản để app không crash
+        debugPrint('[AUTH] ⚠️ Không tìm thấy user trong MySQL (Có thể chưa đồng bộ)');
+        // Fallback: dùng phần trước @ của email thay vì uid xấu
+        final emailPrefix = email.split('@').first;
         _currentUserData = {
           'firebase_uid': uid,
           'email': email,
-          'username': 'User_$uid',
+          'username': emailPrefix,
+          'nickname': emailPrefix,
         };
       }
 
@@ -184,6 +212,69 @@ class AuthProvider extends ChangeNotifier {
     _isLoading = false;
     notifyListeners();
     return false;
+  }
+
+  /// Đăng nhập / Đăng ký bằng Google
+  Future<bool> signInWithGoogle() async {
+    _isLoading = true;
+    _errorMessage = null;
+    notifyListeners();
+
+    try {
+      final result = await _authRepository.signInWithGoogle();
+      final String uid = result['localId'];
+      final String email = result['email'] ?? '';
+      final String displayName = result['displayName'] ?? email.split('@').first;
+      final bool isNewUser = result['isNewUser'] ?? false;
+
+      debugPrint('[AUTH] Google UID: $uid, isNew: $isNewUser, name: $displayName');
+
+      // Kiểm tra user trong MySQL
+      final mysqlUser = await _authRepository.getUserByFirebaseUid(uid);
+
+      if (mysqlUser != null) {
+        // User đã tồn tại → load data MySQL
+        _currentUserData = mysqlUser;
+        debugPrint('[AUTH] ✅ Google user đã có trong MySQL');
+      } else {
+        // User mới → đăng ký vào MySQL với displayName làm nickname
+        try {
+          await _authRepository.registerUserToMySQL(
+            uid: uid,
+            email: email,
+            username: displayName,    // Server sẽ sinh username từ nickname
+            nickname: displayName,
+          );
+          // Reload sau khi đăng ký
+          final newMysqlUser = await _authRepository.getUserByFirebaseUid(uid);
+          _currentUserData = newMysqlUser ?? {
+            'firebase_uid': uid,
+            'email': email,
+            'nickname': displayName,
+            'username': displayName.replaceAll(' ', '').toLowerCase(),
+          };
+        } catch (regError) {
+          debugPrint('[AUTH] ⚠️ MySQL sync thất bại: $regError');
+          _currentUserData = {
+            'firebase_uid': uid,
+            'email': email,
+            'nickname': displayName,
+            'username': email.split('@').first,
+          };
+        }
+      }
+
+      _isLoading = false;
+      notifyListeners();
+      return true;
+
+    } on Exception catch (e) {
+      _errorMessage = e.toString().replaceAll('Exception: ', '');
+      debugPrint('[AUTH] ❌ Google Sign-In lỗi: $_errorMessage');
+      _isLoading = false;
+      notifyListeners();
+      return false;
+    }
   }
 
   Future<void> signOut() async {

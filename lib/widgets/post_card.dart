@@ -14,6 +14,10 @@ import '../utils/format_utils.dart';
 import '../screens/post_detail_screen.dart';
 import '../screens/profile_screen.dart';
 import 'video_player_widget.dart';
+import 'share_post_sheet.dart';
+import 'custom_cached_image.dart';
+import 'bouncy_tap.dart';
+import 'heart_pop_button.dart';
 
 class PostCard extends StatefulWidget {
   const PostCard({
@@ -31,10 +35,15 @@ class PostCard extends StatefulWidget {
   State<PostCard> createState() => _PostCardState();
 }
 
-class _PostCardState extends State<PostCard> {
+class _PostCardState extends State<PostCard>
+    with SingleTickerProviderStateMixin {
   late bool isLiked;
   late int likeCount;
   late bool isFollowing;
+  late bool isReposted;
+  late int repostCount;
+  late AnimationController _likeAnimCtrl;
+  late Animation<double> _likeScale;
 
   @override
   void initState() {
@@ -42,6 +51,23 @@ class _PostCardState extends State<PostCard> {
     isLiked = widget.post.isLiked;
     likeCount = widget.post.likeCount;
     isFollowing = widget.post.isFollowing;
+    isReposted = widget.post.isReposted;
+    repostCount = widget.post.repostCount;
+
+    _likeAnimCtrl = AnimationController(
+      vsync: this,
+      duration: const Duration(milliseconds: 200),
+    );
+    _likeScale = TweenSequence<double>([
+      TweenSequenceItem(tween: Tween(begin: 1.0, end: 1.4), weight: 50),
+      TweenSequenceItem(tween: Tween(begin: 1.4, end: 1.0), weight: 50),
+    ]).animate(CurvedAnimation(parent: _likeAnimCtrl, curve: Curves.easeOut));
+  }
+
+  @override
+  void dispose() {
+    _likeAnimCtrl.dispose();
+    super.dispose();
   }
 
   @override
@@ -49,14 +75,21 @@ class _PostCardState extends State<PostCard> {
     super.didUpdateWidget(oldWidget);
     if (oldWidget.post.isLiked != widget.post.isLiked ||
         oldWidget.post.likeCount != widget.post.likeCount ||
-        oldWidget.post.isFollowing != widget.post.isFollowing) {
+        oldWidget.post.isFollowing != widget.post.isFollowing ||
+        oldWidget.post.isReposted != widget.post.isReposted ||
+        oldWidget.post.repostCount != widget.post.repostCount) {
       setState(() {
         isLiked = widget.post.isLiked;
         likeCount = widget.post.likeCount;
         isFollowing = widget.post.isFollowing;
+        isReposted = widget.post.isReposted;
+        repostCount = widget.post.repostCount;
       });
     }
   }
+
+  bool _isLiking = false;
+  bool _isReposting = false;
 
   void handleLike() async {
     final authProvider = context.read<AuthProvider>();
@@ -65,44 +98,102 @@ class _PostCardState extends State<PostCard> {
     final userProvider = context.read<UserProvider>();
     final firebaseUid = authProvider.currentUserData?['firebase_uid'];
 
-    if (firebaseUid == null) return;
+    if (_isLiking || firebaseUid == null || widget.post.id <= 0) return;
 
-    final originalIsLiked = isLiked;
-    setState(() {
-      isLiked = !isLiked;
-      likeCount += isLiked ? 1 : -1;
-    });
-
-    final successIsLiked = await postProvider.toggleLike(widget.post.id, firebaseUid);
-    
-    // Đồng bộ lại trạng thái thực tế từ server vào cả 2 list providers
-    homeProvider.updatePostLike(widget.post.id, successIsLiked);
-    userProvider.updatePostLike(widget.post.id, successIsLiked);
-
-    // Nếu server trả về kết quả không khớp (do lỗi mạng chẳng hạn), khôi phục lại trạng thái trên UI
-    if (successIsLiked == originalIsLiked && mounted) {
+    _isLiking = true;
+    try {
+      HapticFeedback.lightImpact();
+      final originalIsLiked = isLiked;
       setState(() {
-        isLiked = originalIsLiked;
-        likeCount = widget.post.likeCount;
+        isLiked = !isLiked;
+        likeCount += isLiked ? 1 : -1;
       });
+
+      if (isLiked) {
+        _likeAnimCtrl.forward(from: 0);
+      }
+
+      final successIsLiked =
+          await postProvider.toggleLike(widget.post.id, firebaseUid);
+
+      homeProvider.updatePostLike(widget.post.id, successIsLiked);
+      userProvider.updatePostLike(widget.post.id, successIsLiked);
+
+      // BUG-06 FIX: Revert + thông báo nếu API thất bại
+      if (successIsLiked == originalIsLiked && mounted) {
+        setState(() {
+          isLiked = originalIsLiked;
+          likeCount = widget.post.likeCount;
+        });
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('Không thể thực hiện. Kiểm tra kết nối mạng.'),
+            duration: Duration(seconds: 2),
+          ),
+        );
+      }
+    } finally {
+      _isLiking = false;
+    }
+  }
+
+  void handleRepost() async {
+    final authProvider = context.read<AuthProvider>();
+    final postProvider = context.read<PostProvider>();
+    final homeProvider = context.read<HomeProvider>();
+    final userProvider = context.read<UserProvider>();
+    final firebaseUid = authProvider.currentUserData?['firebase_uid'];
+
+    if (_isReposting || firebaseUid == null || widget.post.id <= 0) return;
+
+    _isReposting = true;
+    try {
+      HapticFeedback.lightImpact();
+      final originalIsReposted = isReposted;
+      setState(() {
+        isReposted = !isReposted;
+        repostCount += isReposted ? 1 : -1;
+      });
+
+      final successIsReposted =
+          await postProvider.toggleRepost(widget.post.id, firebaseUid);
+
+      homeProvider.updatePostRepost(widget.post.id, successIsReposted);
+      userProvider.updatePostRepost(widget.post.id, successIsReposted);
+
+      // BUG-06 FIX: Revert + thông báo nếu API thất bại
+      if (successIsReposted == originalIsReposted && mounted) {
+        setState(() {
+          isReposted = originalIsReposted;
+          repostCount = widget.post.repostCount;
+        });
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('Không thể đăng lại. Kiểm tra kết nối mạng.'),
+            duration: Duration(seconds: 2),
+          ),
+        );
+      }
+    } finally {
+      _isReposting = false;
     }
   }
 
   void _navigateToProfile(BuildContext context, UserModel? author) {
     if (author == null) return;
 
-    if (widget.parentProfileUserId != null && 
+    if (widget.parentProfileUserId != null &&
         author.id.toString() == widget.parentProfileUserId) {
       HapticFeedback.lightImpact();
       return;
     }
-    
+
     final loggedInUser = context.read<AuthProvider>().currentUserData;
     final loggedInUid = loggedInUser?['firebase_uid'];
-    
-    final isMe = author.username == loggedInUser?['username'] || 
-                 author.id.toString() == loggedInUser?['id']?.toString();
-                 
+
+    final isMe = author.username == loggedInUser?['username'] ||
+        author.id.toString() == loggedInUser?['id']?.toString();
+
     Navigator.push(
       context,
       MaterialPageRoute(
@@ -123,22 +214,16 @@ class _PostCardState extends State<PostCard> {
     final followerUid = authProvider.currentUserData?['firebase_uid'];
     if (followerUid == null) return;
 
-    // 1. Cập nhật local state ngay lập tức
-    setState(() {
-      isFollowing = true;
-    });
+    setState(() => isFollowing = true);
 
-    // 2. Chờ API follow hoàn thành để cơ sở dữ liệu được cập nhật trước khi trang profile load
-    await userProvider.followUser(followerUid: followerUid, followingId: author.id);
-
-    // Kích hoạt làm mới feed "Đang theo dõi"
+    await userProvider.followUser(
+        followerUid: followerUid, followingId: author.id);
     homeProvider.fetchFollowingFeed();
 
-    // 3. Điều hướng tới trang cá nhân
     final loggedInUser = authProvider.currentUserData;
     final loggedInUid = loggedInUser?['firebase_uid'];
-    final isMe = author.username == loggedInUser?['username'] || 
-                 author.id.toString() == loggedInUser?['id']?.toString();
+    final isMe = author.username == loggedInUser?['username'] ||
+        author.id.toString() == loggedInUser?['id']?.toString();
 
     if (!context.mounted) return;
     Navigator.push(
@@ -159,72 +244,58 @@ class _PostCardState extends State<PostCard> {
       builder: (BuildContext dialogContext) {
         return Dialog(
           backgroundColor: Colors.transparent,
-          insetPadding: const EdgeInsets.symmetric(horizontal: 40),
+          insetPadding: const EdgeInsets.symmetric(horizontal: 36),
           child: Container(
             decoration: BoxDecoration(
               color: AppColors.surface,
-              borderRadius: BorderRadius.circular(16),
-              boxShadow: [
-                BoxShadow(
-                  color: Colors.black.withOpacity(0.1),
-                  blurRadius: 10,
-                  spreadRadius: 2,
-                  offset: const Offset(0, 4),
-                ),
-              ],
+              borderRadius: BorderRadius.circular(20),
+              boxShadow: AppColors.floatShadow,
             ),
             child: Column(
               mainAxisSize: MainAxisSize.min,
               children: [
-                const SizedBox(height: 24),
+                const SizedBox(height: 28),
                 Container(
-                  width: 48,
-                  height: 48,
-                  decoration: const BoxDecoration(
-                    color: AppColors.inputFill,
+                  width: 56,
+                  height: 56,
+                  decoration: BoxDecoration(
+                    gradient: AppColors.accentGradient,
                     shape: BoxShape.circle,
                   ),
                   child: const Center(
                     child: Icon(
                       Icons.person_add_rounded,
-                      color: AppColors.textPrimary,
-                      size: 24,
+                      color: Colors.white,
+                      size: 26,
                     ),
                   ),
                 ),
                 const SizedBox(height: 16),
                 Padding(
-                  padding: const EdgeInsets.symmetric(horizontal: 20),
+                  padding: const EdgeInsets.symmetric(horizontal: 24),
                   child: Text(
                     'Theo dõi @${author.username}?',
-                    style: const TextStyle(
-                      fontSize: 17,
-                      fontWeight: FontWeight.w800,
+                    style: AppTypography.headlineSmall.copyWith(
                       color: AppColors.textPrimary,
-                      letterSpacing: -0.3,
+                      fontWeight: FontWeight.w800,
                     ),
                     textAlign: TextAlign.center,
                   ),
                 ),
                 const SizedBox(height: 8),
                 Padding(
-                  padding: const EdgeInsets.symmetric(horizontal: 24),
+                  padding: const EdgeInsets.symmetric(horizontal: 28),
                   child: Text(
                     'Bạn sẽ thấy các bài viết của @${author.username} xuất hiện trên bảng tin của mình.',
-                    style: const TextStyle(
-                      fontSize: 13,
-                      height: 1.4,
-                      fontWeight: FontWeight.w400,
+                    style: AppTypography.bodySmall.copyWith(
                       color: AppColors.textSecondary,
+                      height: 1.5,
                     ),
                     textAlign: TextAlign.center,
                   ),
                 ),
                 const SizedBox(height: 24),
-                Container(
-                  height: 0.5,
-                  color: AppColors.border,
-                ),
+                Container(height: 0.5, color: AppColors.border),
                 Row(
                   children: [
                     Expanded(
@@ -232,40 +303,37 @@ class _PostCardState extends State<PostCard> {
                         onTap: () => Navigator.pop(dialogContext),
                         behavior: HitTestBehavior.opaque,
                         child: Container(
-                          height: 46,
+                          height: 50,
                           alignment: Alignment.center,
-                          child: const Text(
+                          child: Text(
                             'Hủy',
-                            style: TextStyle(
-                              fontSize: 15,
-                              fontWeight: FontWeight.w600,
+                            style: AppTypography.titleSmall.copyWith(
                               color: AppColors.textSecondary,
                             ),
                           ),
                         ),
                       ),
                     ),
-                    Container(
-                      width: 0.5,
-                      height: 46,
-                      color: AppColors.border,
-                    ),
+                    Container(width: 0.5, height: 50, color: AppColors.border),
                     Expanded(
                       child: GestureDetector(
                         onTap: () {
-                          Navigator.pop(dialogContext); // Đóng dialog trước
-                          _handleFollowAndNavigate(context, author); // Bắt đầu follow và điều hướng
+                          Navigator.pop(dialogContext);
+                          _handleFollowAndNavigate(context, author);
                         },
                         behavior: HitTestBehavior.opaque,
                         child: Container(
-                          height: 46,
+                          height: 50,
                           alignment: Alignment.center,
-                          child: const Text(
-                            'Theo dõi',
-                            style: TextStyle(
-                              fontSize: 15,
-                              fontWeight: FontWeight.w800,
-                              color: Colors.blueAccent,
+                          child: ShaderMask(
+                            shaderCallback: (bounds) =>
+                                AppColors.accentGradient.createShader(bounds),
+                            child: Text(
+                              'Theo dõi',
+                              style: AppTypography.titleSmall.copyWith(
+                                color: Colors.white,
+                                fontWeight: FontWeight.w800,
+                              ),
                             ),
                           ),
                         ),
@@ -293,197 +361,350 @@ class _PostCardState extends State<PostCard> {
       ),
       behavior: HitTestBehavior.opaque,
       child: Container(
-        decoration: const BoxDecoration(
-          border: Border(bottom: BorderSide(color: AppColors.divider, width: 1)),
+        margin: const EdgeInsets.fromLTRB(16, 0, 16, 14),
+        padding: const EdgeInsets.fromLTRB(14, 14, 14, 10),
+        decoration: BoxDecoration(
+          color: Colors.white,
+          borderRadius: BorderRadius.circular(22),
+          boxShadow: AppColors.shadowSoft,
         ),
-        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 16),
-        child: IntrinsicHeight(
-          child: Row(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              // Left column: Avatar + Thread Line
-              SizedBox(
-                width: 46,
-                child: Column(
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            // Repost indicator
+            if (post.isReposted && post.repostCount > 0) ...[
+              Padding(
+                padding: const EdgeInsets.only(left: 46, bottom: 6),
+                child: Row(
                   children: [
-                    (() {
-                      final loggedInUser = context.read<AuthProvider>().currentUserData;
-                      final isMe = author?.username == loggedInUser?['username'] || 
-                                   author?.id.toString() == loggedInUser?['id']?.toString();
-                      
-                      return GestureDetector(
-                        onTap: () => _navigateToProfile(context, author),
-                        child: SizedBox(
-                          width: 46,
-                          height: 46,
-                          child: Stack(
-                            clipBehavior: Clip.none,
-                            children: [
-                              Positioned(
-                                left: 0,
-                                top: 0,
-                                child: _buildAvatar(author?.avatarUrl),
-                              ),
-                              if (!isMe && !isFollowing && author != null)
-                                Positioned(
-                                  right: 0,
-                                  bottom: 0,
-                                  child: GestureDetector(
-                                    behavior: HitTestBehavior.opaque,
-                                    onTap: () => _showFollowConfirmation(context, author),
-                                    child: Container(
-                                      width: 18,
-                                      height: 18,
-                                      decoration: BoxDecoration(
-                                        color: Colors.black,
-                                        shape: BoxShape.circle,
-                                        border: Border.all(
-                                          color: AppColors.surface,
-                                          width: 1.5,
-                                        ),
-                                      ),
-                                      child: const Center(
-                                        child: Icon(
-                                          Icons.add,
-                                          color: Colors.white,
-                                          size: 11,
-                                        ),
-                                      ),
-                                    ),
-                                  ),
-                                ),
-                            ],
-                          ),
-                        ),
-                      );
-                    }()),
-                    if (widget.showThreadLine)
-                      Expanded(
-                        child: Container(
-                          width: 2,
-                          margin: const EdgeInsets.symmetric(vertical: 8),
-                          color: AppColors.divider,
-                        ),
+                    const Icon(Icons.repeat_rounded,
+                        size: 14, color: AppColors.textTertiary),
+                    const SizedBox(width: 6),
+                    Text(
+                      '${FormatUtils.formatCount(post.repostCount)} lượt đăng lại',
+                      style: AppTypography.labelSmall.copyWith(
+                        color: AppColors.textTertiary,
                       ),
-                  ],
-                ),
-              ),
-              const SizedBox(width: 12),
-              // Right column: Content
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    // Header: Username + Date + More
-                    Row(
-                      children: [
-                        Expanded(
-                          child: GestureDetector(
-                            onTap: () => _navigateToProfile(context, author),
-                            child: Text(
-                              author?.username ?? 'Anonymous',
-                              style: AppTypography.titleMedium.copyWith(
-                                fontWeight: FontWeight.w600,
-                              ),
-                            ),
-                          ),
-                        ),
-                        Text(
-                          _formatDateTime(post.createdAt),
-                          style: AppTypography.labelMedium,
-                        ),
-                        const SizedBox(width: 8),
-                        Icon(
-                          Icons.more_horiz,
-                          size: 18,
-                          color: AppColors.icon,
-                        ),
-                      ],
-                    ),
-                    const SizedBox(height: 4),
-
-                    // Content
-                    _buildRichContent(post.content),
-
-                    // Media
-                    if (post.media.isNotEmpty) ...[
-                      const SizedBox(height: 12),
-                      _buildMedia(post.media),
-                    ],
-
-                    const SizedBox(height: 12),
-
-                    // Action Buttons
-                    Row(
-                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                      children: [
-                        _ActionButton(
-                          icon: isLiked ? Icons.favorite : Icons.favorite_border,
-                          color: isLiked ? AppColors.like : AppColors.icon,
-                          text: FormatUtils.formatCount(likeCount),
-                          onTap: handleLike,
-                        ),
-                        _ActionButton(
-                          icon: Icons.chat_bubble_outline,
-                          text: FormatUtils.formatCount(post.commentCount),
-                          onTap: () => Navigator.push(
-                            context,
-                            MaterialPageRoute(
-                                builder: (_) => PostDetailScreen(post: post)),
-                          ),
-                        ),
-                        const _ActionButton(icon: Icons.repeat_outlined),
-                        const _ActionButton(icon: Icons.send_outlined),
-                      ],
                     ),
                   ],
                 ),
               ),
             ],
-          ),
+
+            IntrinsicHeight(
+              child: Row(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  // Left column: Avatar + Thread Line
+                  SizedBox(
+                    width: 46,
+                    child: Column(
+                      children: [
+                        (() {
+                          final loggedInUser =
+                              context.read<AuthProvider>().currentUserData;
+                          final isMe =
+                              author?.username == loggedInUser?['username'] ||
+                                  author?.id.toString() ==
+                                      loggedInUser?['id']?.toString();
+
+                          return GestureDetector(
+                            onTap: () => _navigateToProfile(context, author),
+                            child: SizedBox(
+                              width: 46,
+                              height: 46,
+                              child: Stack(
+                                clipBehavior: Clip.none,
+                                children: [
+                                  Positioned(
+                                    left: 0,
+                                    top: 0,
+                                    child: _buildAvatar(
+                                      author?.avatarUrl,
+                                      username: author?.nickname ?? author?.username,
+                                    ),
+                                  ),
+                                  if (!isMe && !isFollowing && author != null)
+                                    Positioned(
+                                      right: 0,
+                                      bottom: 0,
+                                      child: GestureDetector(
+                                        behavior: HitTestBehavior.opaque,
+                                        onTap: () => _showFollowConfirmation(
+                                            context, author),
+                                        child: Container(
+                                          width: 18,
+                                          height: 18,
+                                          decoration: BoxDecoration(
+                                            color: AppColors.textPrimary,
+                                            shape: BoxShape.circle,
+                                            border: Border.all(
+                                              color: AppColors.surface,
+                                              width: 2,
+                                            ),
+                                          ),
+                                          child: const Center(
+                                            child: Icon(
+                                              Icons.add,
+                                              color: Colors.white,
+                                              size: 11,
+                                            ),
+                                          ),
+                                        ),
+                                      ),
+                                    ),
+                                ],
+                              ),
+                            ),
+                          );
+                        }()),
+                        if (widget.showThreadLine)
+                          Expanded(
+                            child: Container(
+                              width: 1.5,
+                              margin: const EdgeInsets.symmetric(vertical: 8),
+                              decoration: BoxDecoration(
+                                gradient: const LinearGradient(
+                                  begin: Alignment.topCenter,
+                                  end: Alignment.bottomCenter,
+                                  colors: [AppColors.border, AppColors.divider],
+                                ),
+                                borderRadius: BorderRadius.circular(1),
+                              ),
+                            ),
+                          ),
+                      ],
+                    ),
+                  ),
+                  const SizedBox(width: 12),
+
+                  // Right column: Content
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        // Header: Username + Date + More
+                        Row(
+                          children: [
+                            Expanded(
+                              child: GestureDetector(
+                                onTap: () =>
+                                    _navigateToProfile(context, author),
+                                child: Text(
+                                  author?.nickname ?? author?.username ?? 'Anonymous',
+                                  style: AppTypography.titleMedium.copyWith(
+                                    color: AppColors.textPrimary,
+                                    fontWeight: FontWeight.w700,
+                                  ),
+                                ),
+                              ),
+                            ),
+                            Text(
+                              _formatDateTime(post.createdAt),
+                              style: AppTypography.caption.copyWith(
+                                color: AppColors.textTertiary,
+                              ),
+                            ),
+                            const SizedBox(width: 6),
+                            const Icon(
+                              Icons.more_horiz,
+                              size: 18,
+                              color: AppColors.iconSecondary,
+                            ),
+                          ],
+                        ),
+                        const SizedBox(height: 5),
+
+                        // Content
+                        _buildRichContent(post.content),
+
+                        // Media
+                        if (post.media.isNotEmpty) ...[
+                          const SizedBox(height: 12),
+                          _buildMedia(post.media),
+                        ],
+
+                        const SizedBox(height: 12),
+
+                        // Action Buttons
+                        _buildActionRow(post),
+                      ],
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ],
         ),
       ),
     );
   }
 
-  Widget _buildAvatar(String? url) {
+  Widget _buildActionRow(PostModel post) {
+    return Row(
+      children: [
+        // Like button with HeartPop burst animation
+        HeartPopButton(
+          isLiked: isLiked,
+          count: likeCount,
+          onTap: handleLike,
+        ),
+        const SizedBox(width: 8),
+
+        // Comment button
+        BouncyTap(
+          onTap: () => Navigator.push(
+            context,
+            MaterialPageRoute(builder: (_) => PostDetailScreen(post: post)),
+          ),
+          child: Padding(
+            padding: const EdgeInsets.symmetric(vertical: 8, horizontal: 6),
+            child: Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                const Icon(
+                  Icons.chat_bubble_outline_rounded,
+                  size: 20,
+                  color: AppColors.inkSoft,
+                ),
+                if (post.commentCount > 0) ...[
+                  const SizedBox(width: 5),
+                  Text(
+                    FormatUtils.formatCount(post.commentCount),
+                    style: AppTypography.labelMedium.copyWith(
+                      color: AppColors.inkSoft,
+                      fontWeight: FontWeight.w700,
+                    ),
+                  ),
+                ],
+              ],
+            ),
+          ),
+        ),
+        const SizedBox(width: 8),
+
+        // Repost button
+        Builder(
+          builder: (context) {
+            final loggedInUser = context.read<AuthProvider>().currentUserData;
+            final isOwnPost = post.author?.username ==
+                    loggedInUser?['username'] ||
+                post.author?.id.toString() == loggedInUser?['id']?.toString();
+            return BouncyTap(
+              onTap: isOwnPost ? null : handleRepost,
+              child: Padding(
+                padding: const EdgeInsets.symmetric(vertical: 8, horizontal: 6),
+                child: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Icon(
+                      isReposted ? Icons.repeat_rounded : Icons.repeat_outlined,
+                      size: 20,
+                      color: isOwnPost
+                          ? AppColors.textTertiary
+                          : (isReposted
+                              ? AppColors.accentPurple
+                              : AppColors.inkSoft),
+                    ),
+                    if (repostCount > 0) ...[
+                      const SizedBox(width: 5),
+                      Text(
+                        FormatUtils.formatCount(repostCount),
+                        style: AppTypography.labelMedium.copyWith(
+                          color: isReposted
+                              ? AppColors.accentPurple
+                              : AppColors.inkSoft,
+                          fontWeight: FontWeight.w700,
+                        ),
+                      ),
+                    ],
+                  ],
+                ),
+              ),
+            );
+          },
+        ),
+
+        const Spacer(),
+
+        // Share button
+        Builder(
+          builder: (innerCtx) => BouncyTap(
+            onTap: () {
+              showModalBottomSheet(
+                context: innerCtx,
+                isScrollControlled: true,
+                backgroundColor: Colors.transparent,
+                builder: (sheetCtx) => SizedBox(
+                  height: MediaQuery.of(innerCtx).size.height * 0.7,
+                  child: SharePostSheet(post: widget.post),
+                ),
+              );
+            },
+            child: const Padding(
+              padding: EdgeInsets.symmetric(vertical: 8, horizontal: 6),
+              child: Icon(
+                Icons.send_outlined,
+                size: 20,
+                color: AppColors.inkSoft,
+              ),
+            ),
+          ),
+        ),
+      ],
+    );
+  }
+
+  Widget _buildAvatar(String? url, {String? username}) {
+    final initial = (username != null && username.isNotEmpty)
+        ? username[0].toUpperCase()
+        : 'T';
+
     return Container(
       width: 40,
       height: 40,
-      decoration: BoxDecoration(
-        shape: BoxShape.circle,
-        color: AppColors.avatarBg,
-        boxShadow: [
-          BoxShadow(
-            color: AppColors.shadowColor,
-            blurRadius: 2,
-            offset: const Offset(0, 1),
-          ),
-        ],
+      decoration: const BoxDecoration(
+        gradient: AppColors.mintGradient,
+        borderRadius: BorderRadius.only(
+          topLeft: Radius.circular(14),
+          topRight: Radius.circular(14),
+          bottomRight: Radius.circular(14),
+          bottomLeft: Radius.circular(5),
+        ),
       ),
-      child: ClipOval(
-        child: (url != null && url.isNotEmpty)
-            ? Image.network(
-                url,
-                fit: BoxFit.cover,
-                errorBuilder: (context, error, stackTrace) => const Icon(
-                  Icons.person,
-                  color: AppColors.textSecondary,
-                  size: 20,
+      clipBehavior: Clip.antiAlias,
+      child: url != null && url.isNotEmpty
+          ? CustomCachedImage(
+              imageUrl: url,
+              width: 40,
+              height: 40,
+              fit: BoxFit.cover,
+              errorWidget: Center(
+                child: Text(
+                  initial,
+                  style: AppTypography.titleSmall.copyWith(
+                    color: Colors.white,
+                    fontWeight: FontWeight.w800,
+                  ),
                 ),
-              )
-            : const Icon(
-                Icons.person,
-                color: AppColors.textSecondary,
-                size: 20,
               ),
-      ),
+            )
+          : Center(
+              child: Text(
+                initial,
+                style: AppTypography.titleSmall.copyWith(
+                  color: Colors.white,
+                  fontWeight: FontWeight.w800,
+                ),
+              ),
+            ),
     );
   }
 
   String _formatDateTime(DateTime dt) {
     final now = DateTime.now();
     final diff = now.difference(dt);
+    if (diff.inMinutes < 1) return 'Vừa xong';
     if (diff.inMinutes < 60) return '${diff.inMinutes}m';
     if (diff.inHours < 24) return '${diff.inHours}h';
     if (diff.inDays < 7) return '${diff.inDays}d';
@@ -498,7 +719,7 @@ class _PostCardState extends State<PostCard> {
         spans.add(TextSpan(
           text: match[0],
           style: AppTypography.bodyMedium.copyWith(
-            color: Colors.blueAccent,
+            color: AppColors.accentBlue,
             fontWeight: FontWeight.w600,
           ),
         ));
@@ -518,7 +739,7 @@ class _PostCardState extends State<PostCard> {
     return RichText(
       text: TextSpan(
         style: AppTypography.bodyMedium.copyWith(
-          height: 1.5,
+          height: 1.6,
           color: AppColors.textPrimary,
         ),
         children: spans.isEmpty ? [TextSpan(text: content)] : spans,
@@ -528,23 +749,16 @@ class _PostCardState extends State<PostCard> {
 
   Widget _buildMedia(List<PostMediaModel> media) {
     return ClipRRect(
-      borderRadius: BorderRadius.circular(12),
+      borderRadius: BorderRadius.circular(14),
       child: media.length == 1
           ? (media[0].mediaType == MediaType.video
               ? VideoPlayerWidget(videoUrl: media[0].mediaUrl)
-              : Image.network(
-                  media[0].mediaUrl,
+              : CustomCachedImage(
+                  imageUrl: media[0].mediaUrl,
                   fit: BoxFit.cover,
                   width: double.infinity,
-                  height: 300,
-                  errorBuilder: (context, error, stackTrace) => Container(
-                    color: AppColors.divider,
-                    height: 300,
-                    child: const Center(
-                      child:
-                          Icon(Icons.broken_image, color: AppColors.textTertiary),
-                    ),
-                  ),
+                  height: 280,
+                  borderRadius: BorderRadius.circular(14),
                 ))
           : SizedBox(
               height: 200,
@@ -556,50 +770,35 @@ class _PostCardState extends State<PostCard> {
                   return Container(
                     margin: EdgeInsets.only(
                         right: index < media.length - 1 ? 8 : 0),
-                    width: 150,
+                    width: 160,
                     decoration: BoxDecoration(
-                      borderRadius: BorderRadius.circular(8),
+                      borderRadius: BorderRadius.circular(10),
                     ),
-                    child: ClipRRect(
-                      borderRadius: BorderRadius.circular(8),
-                      child: item.mediaType == MediaType.video
-                          ? VideoPlayerWidget(videoUrl: item.mediaUrl)
-                          : Image.network(
-                              item.mediaUrl,
-                              fit: BoxFit.cover,
-                              errorBuilder: (context, error, stackTrace) => Container(
-                                color: AppColors.divider,
-                                child: const Center(
-                                  child: Icon(
-                                    Icons.broken_image,
-                                    color: AppColors.textTertiary,
-                                  ),
-                                ),
-                              ),
-                            ),
-                    ),
+                    child: item.mediaType == MediaType.video
+                        ? VideoPlayerWidget(videoUrl: item.mediaUrl)
+                        : CustomCachedImage(
+                            imageUrl: item.mediaUrl,
+                            fit: BoxFit.cover,
+                            width: 160,
+                            height: 200,
+                            borderRadius: BorderRadius.circular(10),
+                          ),
                   );
                 },
               ),
             ),
     );
   }
-
-  String _formatDateTime(DateTime dt) {
-    final now = DateTime.now();
-    final difference = now.difference(dt);
-    if (difference.inMinutes < 60) return '${difference.inMinutes}m';
-    if (difference.inHours < 24) return '${difference.inHours}h';
-    return '${difference.inDays}d';
-  }
 }
+
+// ─── Action Button ────────────────────────────────────────────────────────────
 
 class _ActionButton extends StatefulWidget {
   const _ActionButton({
     required this.icon,
     this.text,
     this.onTap,
-    this.color = AppColors.icon,
+    this.color = AppColors.iconSecondary,
   });
 
   final IconData icon;
@@ -612,34 +811,47 @@ class _ActionButton extends StatefulWidget {
 }
 
 class _ActionButtonState extends State<_ActionButton> {
-  bool isHovered = false;
+  bool _pressed = false;
 
   @override
   Widget build(BuildContext context) {
-    return MouseRegion(
-      onEnter: (_) => setState(() => isHovered = true),
-      onExit: (_) => setState(() => isHovered = false),
-      child: GestureDetector(
-        onTap: widget.onTap,
-        behavior: HitTestBehavior.opaque,
+    final isDisabled = widget.onTap == null;
+
+    return GestureDetector(
+      onTapDown: isDisabled ? null : (_) => setState(() => _pressed = true),
+      onTapUp: isDisabled
+          ? null
+          : (_) {
+              setState(() => _pressed = false);
+              widget.onTap?.call();
+            },
+      onTapCancel: () => setState(() => _pressed = false),
+      onTap: widget.onTap,
+      behavior: HitTestBehavior.opaque,
+      child: AnimatedScale(
+        scale: _pressed ? 0.88 : 1.0,
+        duration: const Duration(milliseconds: 100),
         child: Padding(
-          padding: const EdgeInsets.symmetric(vertical: 8, horizontal: 8),
+          padding: const EdgeInsets.symmetric(vertical: 8, horizontal: 6),
           child: Row(
+            mainAxisSize: MainAxisSize.min,
             children: [
               Icon(
                 widget.icon,
-                size: 24,
-                color: widget.color,
+                size: 22,
+                color: isDisabled ? AppColors.textTertiary : widget.color,
               ),
               if (widget.text != null && widget.text != '0') ...[
-                const SizedBox(width: 6),
+                const SizedBox(width: 5),
                 Text(
                   widget.text!,
                   style: AppTypography.labelMedium.copyWith(
-                    color: AppColors.textSecondary,
+                    color: isDisabled
+                        ? AppColors.textTertiary
+                        : AppColors.textSecondary,
                   ),
                 ),
-              ]
+              ],
             ],
           ),
         ),

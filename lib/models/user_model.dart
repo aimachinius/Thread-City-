@@ -6,6 +6,7 @@ class UserModel {
   final String? bio;
   final String? avatarUrl;
   final DateTime? createdAt;
+  bool isOnline;
 
   UserModel({
     required this.id,
@@ -15,17 +16,19 @@ class UserModel {
     this.bio,
     this.avatarUrl,
     this.createdAt,
+    this.isOnline = false,
   });
 
   factory UserModel.fromMap(Map<String, dynamic> map) {
     return UserModel(
-      id: map['id'],
+      id: map['id'] ?? 0,
       username: map['username'] ?? '',
       email: map['email'] ?? '',
       nickname: map['nickname'],
       bio: map['bio'],
       avatarUrl: map['avatar_url'],
-      createdAt: map['created_at'] != null ? DateTime.parse(map['created_at']) : null,
+      createdAt: map['created_at'] != null ? DateTime.tryParse(map['created_at'].toString()) : null,
+      isOnline: map['is_online'] ?? false,
     );
   }
 
@@ -38,6 +41,7 @@ class UserModel {
       'bio': bio,
       'avatar_url': avatarUrl,
       'created_at': createdAt?.toIso8601String(),
+      'is_online': isOnline,
     };
   }
 }

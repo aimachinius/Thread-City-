@@ -1,4 +1,5 @@
 import 'dart:io';
+import 'package:flutter/foundation.dart' show kIsWeb;
 import 'dart:convert';
 import 'package:http/http.dart' as http;
 import 'package:flutter/material.dart'; // Quan trọng nhất để có notifyListeners
@@ -103,7 +104,17 @@ class ProfileProvider extends ChangeNotifier {
           .child('avatars')
           .child('$firebaseUid.jpg');
 
-      final uploadTask = storageRef.putFile(File(image.path));
+      UploadTask uploadTask;
+      if (kIsWeb) {
+        final bytes = await image.readAsBytes();
+        final mimeType = image.mimeType ?? 'image/jpeg';
+        uploadTask = storageRef.putData(
+          bytes, 
+          SettableMetadata(contentType: mimeType)
+        );
+      } else {
+        uploadTask = storageRef.putFile(File(image.path));
+      }
       
       // Chờ quá trình upload hoàn tất
       final snapshot = await uploadTask.whenComplete(() => null);

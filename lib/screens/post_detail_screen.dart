@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:google_fonts/google_fonts.dart';
 import 'package:provider/provider.dart';
 import '../models/post_model.dart';
 import '../models/user_model.dart';
@@ -8,9 +9,11 @@ import '../providers/home_provider.dart';
 import '../providers/user_provider.dart';
 import '../providers/post_provider.dart';
 import '../theme/app_colors.dart';
-import '../theme/app_typography.dart';
+import '../widgets/bouncy_tap.dart';
 import '../widgets/reply_sheet.dart';
 import '../widgets/video_player_widget.dart';
+import '../widgets/share_post_sheet.dart';
+import '../widgets/custom_cached_image.dart';
 import 'profile_screen.dart';
 
 class PostDetailScreen extends StatefulWidget {
@@ -28,13 +31,30 @@ class _PostDetailScreenState extends State<PostDetailScreen> {
 
   late bool _isLiked;
   late int _likeCount;
+  late bool _isReposted;
+  late int _repostCount;
+
+  final TextEditingController _commentController = TextEditingController();
+  final FocusNode _commentFocusNode = FocusNode();
+  final ScrollController _scrollController = ScrollController();
+  bool _isSubmittingComment = false;
 
   @override
   void initState() {
     super.initState();
     _isLiked = widget.post.isLiked;
     _likeCount = widget.post.likeCount;
+    _isReposted = widget.post.isReposted;
+    _repostCount = widget.post.repostCount;
     WidgetsBinding.instance.addPostFrameCallback((_) => _loadReplies());
+  }
+
+  @override
+  void dispose() {
+    _commentController.dispose();
+    _commentFocusNode.dispose();
+    _scrollController.dispose();
+    super.dispose();
   }
 
   Future<void> _loadReplies() async {
@@ -60,30 +80,70 @@ class _PostDetailScreenState extends State<PostDetailScreen> {
     }
   }
 
+  bool _isLikingPost = false;
+  bool _isRepostingPost = false;
+
   void _handleLike() async {
     final uid = context.read<AuthProvider>().currentUserData?['firebase_uid'];
-    if (uid == null) return;
+    if (_isLikingPost || uid == null || widget.post.id <= 0) return;
 
-    final originalIsLiked = _isLiked;
-    setState(() {
-      _isLiked = !_isLiked;
-      _likeCount += _isLiked ? 1 : -1;
-    });
-
-    final postProvider = context.read<PostProvider>();
-    final homeProvider = context.read<HomeProvider>();
-    final userProvider = context.read<UserProvider>();
-
-    final successIsLiked = await postProvider.toggleLike(widget.post.id, uid);
-
-    homeProvider.updatePostLike(widget.post.id, successIsLiked);
-    userProvider.updatePostLike(widget.post.id, successIsLiked);
-
-    if (successIsLiked == originalIsLiked && mounted) {
+    _isLikingPost = true;
+    try {
+      final originalIsLiked = _isLiked;
       setState(() {
-        _isLiked = originalIsLiked;
-        _likeCount = widget.post.likeCount;
+        _isLiked = !_isLiked;
+        _likeCount += _isLiked ? 1 : -1;
       });
+
+      final postProvider = context.read<PostProvider>();
+      final homeProvider = context.read<HomeProvider>();
+      final userProvider = context.read<UserProvider>();
+
+      final successIsLiked = await postProvider.toggleLike(widget.post.id, uid);
+
+      homeProvider.updatePostLike(widget.post.id, successIsLiked);
+      userProvider.updatePostLike(widget.post.id, successIsLiked);
+
+      if (successIsLiked == originalIsLiked && mounted) {
+        setState(() {
+          _isLiked = originalIsLiked;
+          _likeCount = widget.post.likeCount;
+        });
+      }
+    } finally {
+      _isLikingPost = false;
+    }
+  }
+
+  void _handleRepost() async {
+    final uid = context.read<AuthProvider>().currentUserData?['firebase_uid'];
+    if (_isRepostingPost || uid == null || widget.post.id <= 0) return;
+
+    _isRepostingPost = true;
+    try {
+      final originalIsReposted = _isReposted;
+      setState(() {
+        _isReposted = !_isReposted;
+        _repostCount += _isReposted ? 1 : -1;
+      });
+
+      final postProvider = context.read<PostProvider>();
+      final homeProvider = context.read<HomeProvider>();
+      final userProvider = context.read<UserProvider>();
+
+      final successIsReposted = await postProvider.toggleRepost(widget.post.id, uid);
+
+      homeProvider.updatePostRepost(widget.post.id, successIsReposted);
+      userProvider.updatePostRepost(widget.post.id, successIsReposted);
+
+      if (successIsReposted == originalIsReposted && mounted) {
+        setState(() {
+          _isReposted = originalIsReposted;
+          _repostCount = widget.post.repostCount;
+        });
+      }
+    } finally {
+      _isRepostingPost = false;
     }
   }
 
@@ -92,8 +152,132 @@ class _PostDetailScreenState extends State<PostDetailScreen> {
       context: context,
       isScrollControlled: true,
       backgroundColor: Colors.transparent,
-      builder: (_) => ReplySheet(post: widget.post, onReplySent: _loadReplies),
+      builder: (_) => ReplySheet(
+        post: widget.post,
+        onReplyCreated: (newReply) {
+          setState(() {
+            _replies.add(newReply);
+          });
+          WidgetsBinding.instance.addPostFrameCallback((_) {
+            if (_scrollController.hasClients) {
+              _scrollController.animateTo(
+                _scrollController.position.maxScrollExtent + 80,
+                duration: const Duration(milliseconds: 300),
+                curve: Curves.easeOut,
+              );
+            }
+          });
+        },
+        onReplySent: _loadReplies,
+      ),
     );
+  }
+
+  Future<void> _handleSendComment() async {
+    final text = _commentController.text.trim();
+    if (text.isEmpty || _isSubmittingComment) return;
+
+    final authProvider = context.read<AuthProvider>();
+    final postProvider = context.read<PostProvider>();
+    final homeProvider = context.read<HomeProvider>();
+    final userProvider = context.read<UserProvider>();
+
+    final currentUser = authProvider.currentUserData;
+    final firebaseUid = currentUser?['firebase_uid'];
+    if (firebaseUid == null) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Vui lòng đăng nhập để bình luận')),
+      );
+      return;
+    }
+
+    // 1. Tạo PostModel tạm thời cho Optimistic UI
+    final tempId = -DateTime.now().millisecondsSinceEpoch;
+    final tempComment = PostModel(
+      id: tempId,
+      userId: currentUser?['id'] is int ? currentUser!['id'] : 0,
+      parentId: widget.post.id,
+      content: text,
+      type: PostType.comment,
+      createdAt: DateTime.now(),
+      author: UserModel(
+        id: currentUser?['id'] is int ? currentUser!['id'] : 0,
+        username: currentUser?['username'] ?? '',
+        email: currentUser?['email'] ?? '',
+        nickname: currentUser?['nickname'],
+        avatarUrl: currentUser?['avatar_url'],
+      ),
+      likeCount: 0,
+      commentCount: 0,
+      repostCount: 0,
+      isLiked: false,
+      isReposted: false,
+    );
+
+    // 2. ⚡ HIỂN THỊ NGAY TỨC THÌ (0.0s) + XÓA Ô NHẬP + TĂNG COUNT
+    _commentController.clear();
+    setState(() {
+      _replies.add(tempComment);
+      _isSubmittingComment = true;
+    });
+    homeProvider.incrementCommentCount(widget.post.id);
+    userProvider.incrementCommentCount(widget.post.id);
+
+    // Cuộn mượt xuống cuối danh sách
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (_scrollController.hasClients) {
+        _scrollController.animateTo(
+          _scrollController.position.maxScrollExtent + 80,
+          duration: const Duration(milliseconds: 300),
+          curve: Curves.easeOut,
+        );
+      }
+    });
+
+    // 3. GỌI API SERVER NGẦM (Background)
+    try {
+      final realPost = await postProvider.createPost(
+        firebaseUid: firebaseUid,
+        content: text,
+        parentId: widget.post.id,
+        type: 'comment',
+      );
+
+      if (realPost != null && mounted) {
+        setState(() {
+          final idx = _replies.indexWhere((r) => r.id == tempId);
+          if (idx != -1) {
+            _replies[idx] = realPost;
+          }
+        });
+      } else if (mounted) {
+        // Nếu thất bại: gỡ bài tạm, hoàn lại chữ vào ô nhập
+        setState(() {
+          _replies.removeWhere((r) => r.id == tempId);
+          _commentController.text = text;
+        });
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(postProvider.errorMessage ?? 'Không thể gửi bình luận'),
+            backgroundColor: AppColors.error,
+          ),
+        );
+      }
+    } catch (e) {
+      if (mounted) {
+        setState(() {
+          _replies.removeWhere((r) => r.id == tempId);
+          _commentController.text = text;
+        });
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Lỗi gửi bình luận: $e'), backgroundColor: AppColors.error),
+        );
+      }
+    } finally {
+      if (mounted) {
+        setState(() => _isSubmittingComment = false);
+      }
+    }
   }
 
   void _navigateToProfile(BuildContext context, UserModel? author) {
@@ -120,39 +304,145 @@ class _PostDetailScreenState extends State<PostDetailScreen> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      backgroundColor: Colors.white,
+      backgroundColor: AppColors.cream,
       appBar: AppBar(
-        title: const Text('Thread', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16)),
+        title: Text(
+          'Thread',
+          style: GoogleFonts.quicksand(
+            fontWeight: FontWeight.w700,
+            fontSize: 16,
+            color: AppColors.ink,
+          ),
+        ),
         centerTitle: true,
         elevation: 0,
-        backgroundColor: Colors.white,
-        foregroundColor: Colors.black,
-        bottom: PreferredSize(
-          preferredSize: const Size.fromHeight(1),
-          child: Container(height: 1, color: AppColors.border),
+        backgroundColor: AppColors.cream,
+        foregroundColor: AppColors.ink,
+        leading: BouncyTap(
+          onTap: () => Navigator.pop(context),
+          child: const Icon(
+            Icons.arrow_back_ios_new_rounded,
+            color: AppColors.ink,
+            size: 20,
+          ),
+        ),
+        bottom: const PreferredSize(
+          preferredSize: Size.fromHeight(1),
+          child: Divider(color: Color(0x123D2C28), height: 1),
         ),
       ),
       body: RefreshIndicator(
         onRefresh: _loadReplies,
-        color: Colors.black,
+        color: AppColors.coral,
+        backgroundColor: Colors.white,
         child: _buildBody(),
       ),
-      bottomNavigationBar: SafeArea(
-        child: GestureDetector(
-          onTap: _openReplySheet,
-          child: Container(
-            margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
-            decoration: BoxDecoration(
-              color: Colors.grey[100],
-              borderRadius: BorderRadius.circular(24),
-              border: Border.all(color: AppColors.border),
+      bottomNavigationBar: _buildInlineCommentBar(),
+    );
+  }
+
+  Widget _buildInlineCommentBar() {
+    final currentUser = context.watch<AuthProvider>().currentUserData;
+    final avatarUrl = currentUser?['avatar_url'];
+    final targetName = widget.post.author?.nickname ?? widget.post.author?.username ?? '';
+
+    return Container(
+      padding: EdgeInsets.only(
+        left: 14,
+        right: 14,
+        top: 10,
+        bottom: MediaQuery.of(context).viewInsets.bottom + 10,
+      ),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        boxShadow: AppColors.shadowSoft,
+      ),
+      child: SafeArea(
+        top: false,
+        child: Row(
+          children: [
+            _buildAvatar(avatarUrl, size: 36),
+            const SizedBox(width: 10),
+            Expanded(
+              child: Container(
+                padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 2),
+                decoration: BoxDecoration(
+                  color: AppColors.creamDeep,
+                  borderRadius: BorderRadius.circular(20),
+                ),
+                child: TextField(
+                  controller: _commentController,
+                  focusNode: _commentFocusNode,
+                  textCapitalization: TextCapitalization.sentences,
+                  minLines: 1,
+                  maxLines: 4,
+                  style: GoogleFonts.nunito(
+                    fontSize: 14,
+                    color: AppColors.ink,
+                  ),
+                  decoration: InputDecoration(
+                    hintText: 'Trả lời $targetName...',
+                    hintStyle: GoogleFonts.nunito(
+                      color: AppColors.inkSoft,
+                      fontSize: 13.5,
+                    ),
+                    border: InputBorder.none,
+                    isDense: true,
+                    contentPadding: const EdgeInsets.symmetric(vertical: 8),
+                  ),
+                  onSubmitted: (_) => _handleSendComment(),
+                ),
+              ),
             ),
-            child: Text(
-              'Trả lời ${widget.post.author?.username ?? ''}...',
-              style: const TextStyle(color: AppColors.textSecondary, fontSize: 14),
+            const SizedBox(width: 8),
+            BouncyTap(
+              onTap: _openReplySheet,
+              child: const Padding(
+                padding: EdgeInsets.all(6),
+                child: Icon(
+                  Icons.add_photo_alternate_outlined,
+                  color: AppColors.inkSoft,
+                  size: 22,
+                ),
+              ),
             ),
-          ),
+            const SizedBox(width: 4),
+            ValueListenableBuilder<TextEditingValue>(
+              valueListenable: _commentController,
+              builder: (context, value, child) {
+                final hasText = value.text.trim().isNotEmpty;
+                return BouncyTap(
+                  onTap: hasText && !_isSubmittingComment ? _handleSendComment : null,
+                  child: Container(
+                    width: 36,
+                    height: 36,
+                    decoration: BoxDecoration(
+                      gradient: hasText ? AppColors.coralGradient : null,
+                      color: hasText ? null : AppColors.creamDeep,
+                      shape: BoxShape.circle,
+                      boxShadow: hasText ? AppColors.shadowBtn : null,
+                    ),
+                    child: Center(
+                      child: _isSubmittingComment
+                          ? const SizedBox(
+                              width: 16,
+                              height: 16,
+                              child: CircularProgressIndicator(
+                                strokeWidth: 2,
+                                color: Colors.white,
+                              ),
+                            )
+                          : Icon(
+                              Icons.arrow_upward_rounded,
+                              color: hasText ? Colors.white : AppColors.inkSoft,
+                              size: 18,
+                            ),
+                    ),
+                  ),
+                );
+              },
+            ),
+          ],
         ),
       ),
     );
@@ -160,16 +450,20 @@ class _PostDetailScreenState extends State<PostDetailScreen> {
 
   Widget _buildBody() {
     if (_isLoading && _replies.isEmpty) {
-      return ListView(children: [
-        _buildOriginalPost(),
-        const Center(child: Padding(
-          padding: EdgeInsets.all(32),
-          child: CircularProgressIndicator(color: Colors.black, strokeWidth: 2),
-        )),
-      ]);
+      return ListView(
+        controller: _scrollController,
+        children: [
+          _buildOriginalPost(),
+          const Center(child: Padding(
+            padding: EdgeInsets.all(32),
+            child: CircularProgressIndicator(color: Colors.black, strokeWidth: 2),
+          )),
+        ],
+      );
     }
 
     return ListView.builder(
+      controller: _scrollController,
       physics: const AlwaysScrollableScrollPhysics(),
       itemCount: _replies.length + 1,
       itemBuilder: (context, index) {
@@ -207,12 +501,12 @@ class _PostDetailScreenState extends State<PostDetailScreen> {
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
                       Text(
-                        author?.username ?? 'Unknown',
+                        author?.nickname ?? author?.username ?? 'Unknown',
                         style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16),
                       ),
-                      if (author?.nickname != null && author!.nickname != author.username)
+                      if (author?.username != null)
                         Text(
-                          author.nickname!,
+                          '@${author!.username}',
                           style: const TextStyle(color: AppColors.textSecondary, fontSize: 14),
                         ),
                     ],
@@ -263,7 +557,7 @@ class _PostDetailScreenState extends State<PostDetailScreen> {
               
               // Nút Bình luận + Số lượng
               GestureDetector(
-                onTap: _openReplySheet,
+                onTap: () => _commentFocusNode.requestFocus(),
                 behavior: HitTestBehavior.opaque,
                 child: Row(
                   mainAxisSize: MainAxisSize.min,
@@ -290,11 +584,57 @@ class _PostDetailScreenState extends State<PostDetailScreen> {
               const SizedBox(width: 24), // Giãn cách rộng hơn
               
               // Nút Repost
-              const _ActionBtn(icon: Icons.repeat_outlined),
+              Builder(
+                builder: (context) {
+                  final loggedInUser = context.read<AuthProvider>().currentUserData;
+                  final isOwnPost = author?.username == loggedInUser?['username'] ||
+                      author?.id.toString() == loggedInUser?['id']?.toString();
+                  return GestureDetector(
+                    onTap: isOwnPost ? null : _handleRepost,
+                    behavior: HitTestBehavior.opaque,
+                    child: Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Icon(
+                          Icons.repeat_outlined,
+                          size: 24,
+                          color: isOwnPost
+                              ? AppColors.textTertiary
+                              : (_isReposted ? AppColors.like : AppColors.icon),
+                        ),
+                        if (_repostCount > 0) ...[
+                          const SizedBox(width: 6),
+                          Text(
+                            '$_repostCount',
+                            style: const TextStyle(
+                              fontSize: 14,
+                              color: AppColors.textSecondary,
+                              fontWeight: FontWeight.w500,
+                            ),
+                          ),
+                        ],
+                      ],
+                    ),
+                  );
+                },
+              ),
               const SizedBox(width: 24),
               
               // Nút Gửi
-              const _ActionBtn(icon: Icons.send_outlined),
+              _ActionBtn(
+                icon: Icons.send_outlined,
+                onTap: () {
+                  showModalBottomSheet(
+                    context: context,
+                    isScrollControlled: true,
+                    backgroundColor: Colors.transparent,
+                    builder: (_) => SizedBox(
+                      height: MediaQuery.of(context).size.height * 0.7,
+                      child: SharePostSheet(post: post),
+                    ),
+                  );
+                },
+              ),
             ],
           ),
           const SizedBox(height: 16),
@@ -346,11 +686,11 @@ Widget _buildMedia(List<PostMediaModel> media) {
       child: media.length == 1
           ? (media[0].mediaType == MediaType.video
               ? VideoPlayerWidget(videoUrl: media[0].mediaUrl)
-              : Image.network(
-                  media[0].mediaUrl,
+              : CustomCachedImage(
+                  imageUrl: media[0].mediaUrl,
                   fit: BoxFit.cover,
                   width: double.infinity,
-                  errorBuilder: (context, error, stackTrace) => const SizedBox(),
+                  borderRadius: BorderRadius.circular(12),
                 ))
           : SizedBox(
               height: 180,
@@ -365,16 +705,15 @@ Widget _buildMedia(List<PostMediaModel> media) {
                     decoration: BoxDecoration(
                       borderRadius: BorderRadius.circular(8),
                     ),
-                    child: ClipRRect(
-                      borderRadius: BorderRadius.circular(8),
-                      child: item.mediaType == MediaType.video
-                          ? VideoPlayerWidget(videoUrl: item.mediaUrl)
-                          : Image.network(
-                              item.mediaUrl,
-                              fit: BoxFit.cover,
-                              errorBuilder: (context, error, stackTrace) => const SizedBox(),
-                            ),
-                    ),
+                    child: item.mediaType == MediaType.video
+                        ? VideoPlayerWidget(videoUrl: item.mediaUrl)
+                        : CustomCachedImage(
+                            imageUrl: item.mediaUrl,
+                            fit: BoxFit.cover,
+                            width: 140,
+                            height: 180,
+                            borderRadius: BorderRadius.circular(8),
+                          ),
                   );
                 },
               ),
@@ -391,14 +730,12 @@ Widget _buildAvatar(String? url, {double size = 40}) {
       shape: BoxShape.circle,
       color: Colors.grey[200],
     ),
-    child: ClipOval(
-      child: (url != null && url.isNotEmpty)
-          ? Image.network(
-              url,
-              fit: BoxFit.cover,
-              errorBuilder: (context, error, stackTrace) => Icon(Icons.person, color: Colors.grey, size: size * 0.6),
-            )
-          : Icon(Icons.person, color: Colors.grey, size: size * 0.6),
+    child: CustomCachedImage(
+      imageUrl: url,
+      width: size,
+      height: size,
+      isCircle: true,
+      errorWidget: Icon(Icons.person, color: Colors.grey, size: size * 0.6),
     ),
   );
 }
@@ -445,6 +782,8 @@ class _ReplyCard extends StatefulWidget {
 class _ReplyCardState extends State<_ReplyCard> {
   late bool _isLiked;
   late int _likeCount;
+  late bool _isReposted;
+  late int _repostCount;
   bool _showAllReplies = false;
 
   @override
@@ -452,33 +791,75 @@ class _ReplyCardState extends State<_ReplyCard> {
     super.initState();
     _isLiked = widget.reply.isLiked;
     _likeCount = widget.reply.likeCount;
+    _isReposted = widget.reply.isReposted;
+    _repostCount = widget.reply.repostCount;
     _showAllReplies = false;
   }
 
+  bool _isLikingReply = false;
+  bool _isRepostingReply = false;
+
   void _handleLike() async {
     final uid = context.read<AuthProvider>().currentUserData?['firebase_uid'];
-    if (uid == null) return;
+    if (_isLikingReply || uid == null || widget.reply.id <= 0) return;
 
-    final originalIsLiked = _isLiked;
-    setState(() {
-      _isLiked = !_isLiked;
-      _likeCount += _isLiked ? 1 : -1;
-    });
-
-    final postProvider = context.read<PostProvider>();
-    final homeProvider = context.read<HomeProvider>();
-    final userProvider = context.read<UserProvider>();
-
-    final successIsLiked = await postProvider.toggleLike(widget.reply.id, uid);
-
-    homeProvider.updatePostLike(widget.reply.id, successIsLiked);
-    userProvider.updatePostLike(widget.reply.id, successIsLiked);
-
-    if (successIsLiked == originalIsLiked && mounted) {
+    _isLikingReply = true;
+    try {
+      final originalIsLiked = _isLiked;
       setState(() {
-        _isLiked = originalIsLiked;
-        _likeCount = widget.reply.likeCount;
+        _isLiked = !_isLiked;
+        _likeCount += _isLiked ? 1 : -1;
       });
+
+      final postProvider = context.read<PostProvider>();
+      final homeProvider = context.read<HomeProvider>();
+      final userProvider = context.read<UserProvider>();
+
+      final successIsLiked = await postProvider.toggleLike(widget.reply.id, uid);
+
+      homeProvider.updatePostLike(widget.reply.id, successIsLiked);
+      userProvider.updatePostLike(widget.reply.id, successIsLiked);
+
+      if (successIsLiked == originalIsLiked && mounted) {
+        setState(() {
+          _isLiked = originalIsLiked;
+          _likeCount = widget.reply.likeCount;
+        });
+      }
+    } finally {
+      _isLikingReply = false;
+    }
+  }
+
+  void _handleRepost() async {
+    final uid = context.read<AuthProvider>().currentUserData?['firebase_uid'];
+    if (_isRepostingReply || uid == null || widget.reply.id <= 0) return;
+
+    _isRepostingReply = true;
+    try {
+      final originalIsReposted = _isReposted;
+      setState(() {
+        _isReposted = !_isReposted;
+        _repostCount += _isReposted ? 1 : -1;
+      });
+
+      final postProvider = context.read<PostProvider>();
+      final homeProvider = context.read<HomeProvider>();
+      final userProvider = context.read<UserProvider>();
+
+      final successIsReposted = await postProvider.toggleRepost(widget.reply.id, uid);
+
+      homeProvider.updatePostRepost(widget.reply.id, successIsReposted);
+      userProvider.updatePostRepost(widget.reply.id, successIsReposted);
+
+      if (successIsReposted == originalIsReposted && mounted) {
+        setState(() {
+          _isReposted = originalIsReposted;
+          _repostCount = widget.reply.repostCount;
+        });
+      }
+    } finally {
+      _isRepostingReply = false;
     }
   }
 
@@ -566,7 +947,7 @@ class _ReplyCardState extends State<_ReplyCard> {
                               child: GestureDetector(
                                 onTap: () => _navigateToProfile(context, author),
                                 child: Text(
-                                  author?.username ?? 'Unknown',
+                                  author?.nickname ?? author?.username ?? 'Unknown',
                                   style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 14),
                                 ),
                               ),
@@ -650,7 +1031,67 @@ class _ReplyCardState extends State<_ReplyCard> {
                             const SizedBox(width: 24), // Giãn cách rộng hơn
                             
                             // Nút Repost
-                            const _ActionBtn(icon: Icons.repeat_outlined),
+                            Builder(
+                              builder: (context) {
+                                final loggedInUser = context.read<AuthProvider>().currentUserData;
+                                final isOwnPost = author?.username == loggedInUser?['username'] ||
+                                    author?.id.toString() == loggedInUser?['id']?.toString();
+                                return GestureDetector(
+                                  onTap: isOwnPost ? null : _handleRepost,
+                                  behavior: HitTestBehavior.opaque,
+                                  child: Row(
+                                    mainAxisSize: MainAxisSize.min,
+                                    children: [
+                                      Icon(
+                                        Icons.repeat_outlined,
+                                        size: 24,
+                                        color: isOwnPost
+                                            ? AppColors.textTertiary
+                                            : (_isReposted ? AppColors.like : AppColors.icon),
+                                      ),
+                                      if (_repostCount > 0) ...[
+                                        const SizedBox(width: 6),
+                                        Text(
+                                          '$_repostCount',
+                                          style: const TextStyle(
+                                            fontSize: 13,
+                                            color: AppColors.textSecondary,
+                                            fontWeight: FontWeight.w500,
+                                          ),
+                                        ),
+                                      ],
+                                    ],
+                                  ),
+                                );
+                              },
+                            ),
+                            const SizedBox(width: 24), // Giãn cách rộng hơn
+                            
+                            // Nút Gửi (Share)
+                            GestureDetector(
+                              onTap: () {
+                                showModalBottomSheet(
+                                  context: context,
+                                  isScrollControlled: true,
+                                  backgroundColor: Colors.transparent,
+                                  builder: (_) => SizedBox(
+                                    height: MediaQuery.of(context).size.height * 0.7,
+                                    child: SharePostSheet(post: widget.reply),
+                                  ),
+                                );
+                              },
+                              behavior: HitTestBehavior.opaque,
+                              child: Row(
+                                mainAxisSize: MainAxisSize.min,
+                                children: [
+                                  const Icon(
+                                    Icons.send_outlined,
+                                    size: 24,
+                                    color: AppColors.icon,
+                                  ),
+                                ],
+                              ),
+                            ),
                           ],
                         ),
                         const SizedBox(height: 12),

@@ -6,6 +6,7 @@ import 'auth_provider.dart';
 class HomeProvider extends ChangeNotifier {
   final IPostRepository _postRepository;
   final AuthProvider _authProvider;
+  String? _lastFetchedUid;
 
   List<PostModel> _posts = [];
   bool _isLoading = false;
@@ -16,9 +17,28 @@ class HomeProvider extends ChangeNotifier {
   String? _followingErrorMessage;
 
   HomeProvider(this._postRepository, this._authProvider) {
-    fetchFeed(); 
+    // BUG-03 FIX: Listen auth changes → refresh feed khi user đăng nhập xong
+    _authProvider.addListener(_onAuthChanged);
+    fetchFeed();
     fetchFollowingFeed();
   }
+
+  /// Gọi khi AuthProvider có thay đổi
+  void _onAuthChanged() {
+    final currentUid = _authProvider.currentUserData?['firebase_uid'];
+    // Chỉ refresh khi UID thực sự thay đổi (tránh gọi lại vô ích)
+    if (currentUid != _lastFetchedUid) {
+      fetchFeed();
+      fetchFollowingFeed();
+    }
+  }
+
+  @override
+  void dispose() {
+    _authProvider.removeListener(_onAuthChanged);
+    super.dispose();
+  }
+
 
   List<PostModel> get posts => _posts;
   bool get isLoading => _isLoading;
@@ -43,6 +63,7 @@ class HomeProvider extends ChangeNotifier {
 
     try {
       final firebaseUid = _authProvider.currentUserData?['firebase_uid'];
+      _lastFetchedUid = firebaseUid; // Lưu UID đã fetch để tránh gọi lại trùng
       _posts = await _postRepository.getFeed(firebaseUid: firebaseUid);
     } catch (e) {
       _errorMessage = 'Không thể tải bảng tin. Vui lòng thử lại.';
@@ -101,6 +122,36 @@ class HomeProvider extends ChangeNotifier {
       _followingPosts[followingIndex] = post.copyWith(
         isLiked: isLiked,
         likeCount: isLiked ? post.likeCount + 1 : post.likeCount - 1,
+      );
+      changed = true;
+    }
+
+    if (changed) {
+      notifyListeners();
+    }
+  }
+
+  void updatePostRepost(int postId, bool isReposted) {
+    bool changed = false;
+
+    // 1. Update For You posts
+    final index = _posts.indexWhere((p) => p.id == postId);
+    if (index != -1) {
+      final post = _posts[index];
+      _posts[index] = post.copyWith(
+        isReposted: isReposted,
+        repostCount: isReposted ? post.repostCount + 1 : post.repostCount - 1,
+      );
+      changed = true;
+    }
+
+    // 2. Update Following posts
+    final followingIndex = _followingPosts.indexWhere((p) => p.id == postId);
+    if (followingIndex != -1) {
+      final post = _followingPosts[followingIndex];
+      _followingPosts[followingIndex] = post.copyWith(
+        isReposted: isReposted,
+        repostCount: isReposted ? post.repostCount + 1 : post.repostCount - 1,
       );
       changed = true;
     }

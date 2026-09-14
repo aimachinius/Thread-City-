@@ -50,8 +50,8 @@ export const getUserProfile = async (req: Request, res: Response) => {
                 ...user,
                 password_hash: undefined,
                 stats: {
-                    followers: user._count.following,
-                    following: user._count.followers,
+                    followers: user._count.followers,
+                    following: user._count.following,
                     posts: user._count.posts
                 },
                 is_following

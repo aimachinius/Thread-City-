@@ -6,12 +6,19 @@ import '../providers/home_provider.dart';
 import '../providers/user_provider.dart';
 import '../providers/post_provider.dart';
 import '../theme/app_colors.dart';
+import 'custom_cached_image.dart';
 
 class ReplySheet extends StatefulWidget {
   final PostModel post;
   final VoidCallback? onReplySent;
+  final void Function(PostModel newReply)? onReplyCreated;
 
-  const ReplySheet({super.key, required this.post, this.onReplySent});
+  const ReplySheet({
+    super.key,
+    required this.post,
+    this.onReplySent,
+    this.onReplyCreated,
+  });
 
   @override
   State<ReplySheet> createState() => _ReplySheetState();
@@ -48,19 +55,20 @@ class _ReplySheetState extends State<ReplySheet> {
     }
 
     try {
-      final success = await postProvider.createPost(
+      final newReply = await postProvider.createPost(
         firebaseUid: firebaseUid,
         content: content,
         parentId: widget.post.id,
         type: 'comment',
       );
 
-      if (success && mounted) {
+      if (newReply != null && mounted) {
         // Đồng bộ tăng số lượng comment cục bộ cho bài viết gốc
         homeProvider.incrementCommentCount(widget.post.id);
         userProvider.incrementCommentCount(widget.post.id);
 
         Navigator.pop(context);
+        widget.onReplyCreated?.call(newReply);
         widget.onReplySent?.call();
       }
     } catch (e) {
@@ -77,7 +85,7 @@ class _ReplySheetState extends State<ReplySheet> {
   @override
   Widget build(BuildContext context) {
     final userData = context.read<AuthProvider>().currentUserData;
-    final currentUsername = userData?['username'] ?? 'me';
+    final currentUsername = userData?['nickname'] ?? userData?['username'] ?? 'me';
     final currentUserAvatar = userData?['avatar_url'];
 
     return Container(
@@ -101,7 +109,7 @@ class _ReplySheetState extends State<ReplySheet> {
             child: Row(
               children: [
                 Text(
-                  'Trả lời ${widget.post.author?.username ?? ''}',
+                  'Trả lời ${widget.post.author?.nickname ?? widget.post.author?.username ?? ''}',
                   style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16),
                 ),
               ],
@@ -130,7 +138,7 @@ class _ReplySheetState extends State<ReplySheet> {
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
                       Text(
-                        widget.post.author?.username ?? 'unknown',
+                        widget.post.author?.nickname ?? widget.post.author?.username ?? 'unknown',
                         style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 14),
                       ),
                       const SizedBox(height: 2),
@@ -193,14 +201,13 @@ class _ReplySheetState extends State<ReplySheet> {
         shape: BoxShape.circle,
         color: Colors.grey[100],
       ),
-      child: ClipOval(
-        child: (url != null && url.isNotEmpty)
-            ? Image.network(
-                url,
-                fit: BoxFit.cover,
-                errorBuilder: (context, error, stackTrace) => Icon(Icons.person, color: Colors.grey, size: size * 0.6),
-              )
-            : Icon(Icons.person, color: Colors.grey, size: size * 0.6),
+      child: CustomCachedImage(
+        imageUrl: url,
+        width: size,
+        height: size,
+        isCircle: true,
+        fit: BoxFit.cover,
+        errorWidget: Icon(Icons.person, color: Colors.grey, size: size * 0.6),
       ),
     );
   }
