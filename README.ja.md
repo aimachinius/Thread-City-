@@ -51,11 +51,11 @@ graph TD
         MediaStorage[("Firebase Cloud Storage<br/>(暗号化マルチメディアCDNバケット)")]
     end
 
-    WebClient -->|HTTPS 静的ファイル| CDN
-    WebClient -->|HTTPS REST API / JSON| ReverseProxy
-    MobileClient -->|HTTPS REST API / JSON| ReverseProxy
-    WebClient -->|WSS / WebSocket トランスポート| SocketEngine
-    MobileClient -->|WSS / WebSocket トランスポート| SocketEngine
+    WebClient -->|"HTTPS 静的ファイル"| CDN
+    WebClient -->|"HTTPS REST API / JSON"| ReverseProxy
+    MobileClient -->|"HTTPS REST API / JSON"| ReverseProxy
+    WebClient -->|"WSS / WebSocket トランスポート"| SocketEngine
+    MobileClient -->|"WSS / WebSocket トランスポート"| SocketEngine
 
     ReverseProxy --> CORS
     CORS --> ExpressApp
@@ -64,10 +64,10 @@ graph TD
     SocketEngine --> AuthGuard
 
     ExpressApp --> PrismaEngine
-    SocketEngine <-->|クラスタ水平スケーリング & ルーム同期| RedisCluster
-    PrismaEngine <-->|コネクションプール / SSL Strict| DistributedDB
-    WebClient -.->|署名付き直接アップロード / ダウンロード| MediaStorage
-    MobileClient -.->|署名付き直接アップロード / ダウンロード| MediaStorage
+    SocketEngine <-->|"クラスタ水平スケーリング & ルーム同期"| RedisCluster
+    PrismaEngine <-->|"コネクションプール / SSL Strict"| DistributedDB
+    WebClient -.->|"署名付き直接アップロード / ダウンロード"| MediaStorage
+    MobileClient -.->|"署名付き直接アップロード / ダウンロード"| MediaStorage
 ```
 
 ---
@@ -186,15 +186,15 @@ flowchart TD
     SocketGateway <--> SocketAuth
     SocketGateway <--> RoomManager
     RoomManager <--> RedisAdapter
-    RedisAdapter <-->|Redis Protocol SSL| UpstashRedis
+    RedisAdapter <-->|"Redis Protocol SSL"| UpstashRedis
 
     AuthCtrl --> PrismaORM
     PostCtrl --> PrismaORM
     UserCtrl --> PrismaORM
     MsgCtrl --> PrismaORM
     NotiCtrl --> PrismaORM
-    RoomManager -.->|メッセージ & ステータス保存| PrismaORM
-    PrismaORM <-->|MySQL Protocol (Strict SSL)| TiDBDB
+    RoomManager -.->|"メッセージ & ステータス保存"| PrismaORM
+    PrismaORM <-->|"MySQL Protocol - Strict SSL"| TiDBDB
 ```
 
 ---

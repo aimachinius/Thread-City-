@@ -51,11 +51,11 @@ graph TD
         MediaStorage[("Firebase Cloud Storage<br/>(Encrypted Multimedia CDN Bucket)")]
     end
 
-    WebClient -->|HTTPS Static Assets| CDN
-    WebClient -->|HTTPS REST API / JSON| ReverseProxy
-    MobileClient -->|HTTPS REST API / JSON| ReverseProxy
-    WebClient -->|WSS / WebSocket Transport| SocketEngine
-    MobileClient -->|WSS / WebSocket Transport| SocketEngine
+    WebClient -->|"HTTPS Static Assets"| CDN
+    WebClient -->|"HTTPS REST API / JSON"| ReverseProxy
+    MobileClient -->|"HTTPS REST API / JSON"| ReverseProxy
+    WebClient -->|"WSS / WebSocket Transport"| SocketEngine
+    MobileClient -->|"WSS / WebSocket Transport"| SocketEngine
 
     ReverseProxy --> CORS
     CORS --> ExpressApp
@@ -64,10 +64,10 @@ graph TD
     SocketEngine --> AuthGuard
 
     ExpressApp --> PrismaEngine
-    SocketEngine <-->|Cluster Horizontal Scaling & Rooms| RedisCluster
-    PrismaEngine <-->|Connection Pool / SSL Strict| DistributedDB
-    WebClient -.->|Direct Signed Upload / Download| MediaStorage
-    MobileClient -.->|Direct Signed Upload / Download| MediaStorage
+    SocketEngine <-->|"Cluster Horizontal Scaling & Rooms"| RedisCluster
+    PrismaEngine <-->|"Connection Pool / SSL Strict"| DistributedDB
+    WebClient -.->|"Direct Signed Upload / Download"| MediaStorage
+    MobileClient -.->|"Direct Signed Upload / Download"| MediaStorage
 ```
 
 ---
@@ -187,15 +187,15 @@ flowchart TD
     SocketGateway <--> SocketAuth
     SocketGateway <--> RoomManager
     RoomManager <--> RedisAdapter
-    RedisAdapter <-->|Redis Protocol SSL| UpstashRedis
+    RedisAdapter <-->|"Redis Protocol SSL"| UpstashRedis
 
     AuthCtrl --> PrismaORM
     PostCtrl --> PrismaORM
     UserCtrl --> PrismaORM
     MsgCtrl --> PrismaORM
     NotiCtrl --> PrismaORM
-    RoomManager -.->|Persist Chats & Status| PrismaORM
-    PrismaORM <-->|MySQL Protocol (Strict SSL)| TiDBDB
+    RoomManager -.->|"Persist Chats & Status"| PrismaORM
+    PrismaORM <-->|"MySQL Protocol - Strict SSL"| TiDBDB
 ```
 
 ### Vòng đời của một Request trên Server:
