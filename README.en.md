@@ -27,35 +27,35 @@ The architecture follows a **Distributed Monolith Ready-to-Microservices** topol
 
 ```mermaid
 graph TD
-    subgraph Client Layer [1. Client Layer - Cross Platform]
+    subgraph ClientLayer ["1. Client Layer - Cross Platform"]
         WebClient["Flutter Web SPA<br/>(CanvasKit / HTML Engine)"]
         MobileClient["Flutter Mobile<br/>(Android / iOS Impeller)"]
     end
 
-    subgraph Edge Layer [2. Edge & Security Gateway]
+    subgraph EdgeLayer ["2. Edge & Security Gateway"]
         CDN["Firebase Hosting CDN<br/>(Edge Caching & Static Assets)"]
         ReverseProxy["Cloud Ingress Gateway<br/>(SSL/TLS 1.3 Termination)"]
         CORS["CORS Dynamic Host Validator<br/>(Origin Whitelist & Null-bypass)"]
     end
 
-    subgraph Application Layer [3. Backend Application Engine - Node.js & TypeScript]
+    subgraph AppLayer ["3. Backend Application Engine - Node.js & TypeScript"]
         ExpressApp["Express.js 5.x REST Gateway<br/>(Controllers, Middlewares, Routes)"]
         SocketEngine["Socket.IO 4.x WebSocket Gateway<br/>(Room Management & Presence Engine)"]
         AuthGuard["Firebase Admin SDK<br/>(Decoded JWT Token Validator)"]
         PrismaEngine["Prisma 6.x ORM Query Engine<br/>(Connection Pooling & ACID Transactions)"]
     end
 
-    subgraph Distributed Data Layer [4. Distributed Persistence & Pub/Sub Layer]
+    subgraph DataLayer ["4. Distributed Persistence & Pub/Sub Layer"]
         RedisCluster[("Upstash Redis Cluster<br/>(Pub/Sub Adapter & In-Memory State)")]
         DistributedDB[("TiDB Cloud Serverless<br/>(Distributed Relational MySQL Engine)")]
         MediaStorage[("Firebase Cloud Storage<br/>(Encrypted Multimedia CDN Bucket)")]
     end
 
-    WebClient -->|HTTPS Static Assets| CDN
-    WebClient -->|HTTPS REST API / JSON| ReverseProxy
-    MobileClient -->|HTTPS REST API / JSON| ReverseProxy
-    WebClient -->|WSS / WebSocket Transport| SocketEngine
-    MobileClient -->|WSS / WebSocket Transport| SocketEngine
+    WebClient -->|"HTTPS Static Assets"| CDN
+    WebClient -->|"HTTPS REST API / JSON"| ReverseProxy
+    MobileClient -->|"HTTPS REST API / JSON"| ReverseProxy
+    WebClient -->|"WSS / WebSocket Transport"| SocketEngine
+    MobileClient -->|"WSS / WebSocket Transport"| SocketEngine
 
     ReverseProxy --> CORS
     CORS --> ExpressApp
@@ -64,9 +64,10 @@ graph TD
     SocketEngine --> AuthGuard
 
     ExpressApp --> PrismaEngine
-    SocketEngine <-->|Cluster Horizontal Scaling & Rooms| RedisCluster
-    PrismaEngine <-->|Connection Pool / SSL Strict| DistributedDB
-    Client Layer -.->|Direct Signed Upload / Download| MediaStorage
+    SocketEngine <-->|"Cluster Horizontal Scaling & Rooms"| RedisCluster
+    PrismaEngine <-->|"Connection Pool / SSL Strict"| DistributedDB
+    WebClient -.->|"Direct Signed Upload / Download"| MediaStorage
+    MobileClient -.->|"Direct Signed Upload / Download"| MediaStorage
 ```
 
 ---
@@ -79,22 +80,22 @@ The Flutter Client is organized strictly under the **MVVM (Model - View - ViewMo
 flowchart LR
     subgraph AppFlow ["App Initialization Flow"]
         direction LR
-        APP["1. APP<br/>(main.dart)"] --> ProvidersInit["2. Providers<br/>(MultiProvider Registration)"]
-        ProvidersInit --> Material["3. Material App<br/>(Theme & Localization)"]
-        Material --> Routes["4. Routes<br/>(Navigation Routing)"]
-        Routes --> View["5. View<br/>(Screens & Widgets)"]
+        APP("1. APP<br/>main.dart") --> ProvidersInit("2. Providers<br/>MultiProvider Registration")
+        ProvidersInit --> Material("3. Material App<br/>Theme & Localization")
+        Material --> Routes("4. Routes<br/>Navigation Routing")
+        Routes --> View("5. View<br/>Screens & Widgets")
     end
 
     subgraph MVVMArchitecture ["Model - View - ViewModel Pattern"]
         direction LR
-        View -->|"Observes State / Dispatches Actions"| ProvidersVM["Providers<br/>(View Model / ChangeNotifier)"]
-        Repo["Repository<br/>(HTTP & Socket Client)" ] -->|"Dependencies Injection<br/>(Constructor Injection)"| ProvidersVM
-        Repo -->|"Serializes / Deserializes"| Model["Model<br/>(Data Entities / DTOs)"]
+        View -->|"Observes State / Dispatches Actions"| ProvidersVM("Providers<br/>View Model / ChangeNotifier")
+        Repo("Repository<br/>HTTP & Socket Client") -->|"Dependencies Injection<br/>Constructor Injection"| ProvidersVM
+        Repo -->|"Serializes / Deserializes"| Model("Model<br/>Data Entities / DTOs")
         ProvidersVM -->|"notifyListeners() / UI Rebuild"| View
     end
 
-    classDef blueBox fill:#1976D2,stroke:#0D47A1,stroke-width:2px,color:#fff,rx:14px,ry:14px;
-    classDef purpleBox fill:#673AB7,stroke:#311B92,stroke-width:2px,color:#fff,rx:14px,ry:14px;
+    classDef blueBox fill:#1976D2,stroke:#0D47A1,stroke-width:2px,color:#fff;
+    classDef purpleBox fill:#673AB7,stroke:#311B92,stroke-width:2px,color:#fff;
     class APP,ProvidersInit,Material,Routes,Repo blueBox;
     class View,ProvidersVM,Model purpleBox;
 ```
@@ -162,23 +163,38 @@ flowchart TD
     end
 
     HTTPReq --> CORS
-    CORS --> Helmet --> Logger --> AuthGuard
+    CORS --> Helmet
+    Helmet --> Logger
+    Logger --> AuthGuard
 
-    AuthGuard --> AuthRouter --> AuthCtrl
-    AuthGuard --> PostRouter --> PostCtrl
-    AuthGuard --> UserRouter --> UserCtrl
-    AuthGuard --> MsgRouter --> MsgCtrl
-    AuthGuard --> NotiRouter --> NotiCtrl
+    AuthGuard --> AuthRouter
+    AuthRouter --> AuthCtrl
+
+    AuthGuard --> PostRouter
+    PostRouter --> PostCtrl
+
+    AuthGuard --> UserRouter
+    UserRouter --> UserCtrl
+
+    AuthGuard --> MsgRouter
+    MsgRouter --> MsgCtrl
+
+    AuthGuard --> NotiRouter
+    NotiRouter --> NotiCtrl
 
     WSReq --> SocketGateway
     SocketGateway <--> SocketAuth
     SocketGateway <--> RoomManager
     RoomManager <--> RedisAdapter
-    RedisAdapter <-->|Redis Protocol SSL| UpstashRedis
+    RedisAdapter <-->|"Redis Protocol SSL"| UpstashRedis
 
-    AuthCtrl & PostCtrl & UserCtrl & MsgCtrl & NotiCtrl --> PrismaORM
-    RoomManager -.->|Persist Chats & Status| PrismaORM
-    PrismaORM <-->|MySQL Protocol (Strict SSL)| TiDBDB
+    AuthCtrl --> PrismaORM
+    PostCtrl --> PrismaORM
+    UserCtrl --> PrismaORM
+    MsgCtrl --> PrismaORM
+    NotiCtrl --> PrismaORM
+    RoomManager -.->|"Persist Chats & Status"| PrismaORM
+    PrismaORM <-->|"MySQL Protocol - Strict SSL"| TiDBDB
 ```
 
 ---
@@ -250,31 +266,31 @@ The relational database schema is strictly normalized, supplemented with **contr
 
 ```mermaid
 erDiagram
-    users ||--o{ posts : "creates (1:N)"
-    users ||--o{ likes : "likes (1:N)"
-    users ||--o{ reposts : "reposts (1:N)"
-    users ||--o{ follows : "follows (1:N)"
-    users ||--o{ blocks : "blocks (1:N)"
+    users ||--o{ posts : "creates"
+    users ||--o{ likes : "likes"
+    users ||--o{ reposts : "reposts"
+    users ||--o{ follows : "follows"
+    users ||--o{ blocks : "blocks"
     users ||--o{ notifications : "receives_or_triggers"
-    users ||--o{ conversations : "participant_1_or_2"
-    conversations ||--o{ messages : "contains (1:N)"
-    posts ||--o{ posts : "replies_to_parent (1:N Recursive)"
-    posts ||--o| post_counts : "denormalized_counters (1:1)"
-    posts ||--o{ post_media : "contains_media (1:N)"
-    posts ||--o{ post_hashtags : "tagged_with (1:N)"
-    hashtags ||--o{ post_hashtags : "categorizes (1:N)"
+    users ||--o{ conversations : "participant"
+    conversations ||--o{ messages : "contains"
+    posts ||--o{ posts : "replies_to_parent"
+    posts ||--o| post_counts : "denormalized_counters"
+    posts ||--o{ post_media : "contains_media"
+    posts ||--o{ post_hashtags : "tagged_with"
+    hashtags ||--o{ post_hashtags : "categorizes"
 
     users {
         int id PK
-        string firebase_uid UK "Firebase Identity Mapping"
+        string firebase_uid UK
         string username UK
         string email UK
         string nickname
         string bio
         string avatar_url
         boolean is_verified
-        enum status "active, banned, deactivated"
-        string fcm_token "Push Notification Token"
+        string status
+        string fcm_token
         timestamp created_at
         timestamp updated_at
     }
@@ -282,17 +298,17 @@ erDiagram
     posts {
         int id PK
         int user_id FK
-        int parent_id FK "Recursive Self-referential Thread"
+        int parent_id FK
         text content
-        enum type "post, comment, reply, quote"
-        timestamp created_at "Index idx_created_at"
+        string type
+        timestamp created_at
         timestamp updated_at
-        timestamp deleted_at "Soft Delete Indicator"
+        timestamp deleted_at
     }
 
     post_counts {
         int post_id PK, FK
-        int like_count "Atomic increment/decrement"
+        int like_count
         int comment_count
         int repost_count
     }
@@ -301,7 +317,7 @@ erDiagram
         int id PK
         int post_id FK
         string media_url
-        enum media_type "image, video, gif"
+        string media_type
         int order_index
     }
 
