@@ -13,8 +13,8 @@
 Hệ thống hiện đã được triển khai hoàn chỉnh và đang vận hành trực tuyến 24/7 độc lập trên hạ tầng Cloud:
 
 * 🖥️ **Web Application (Production Client)**: [https://thread-b4d7b.web.app](https://thread-b4d7b.web.app)
-* ⚡ **Core Backend API Gateway (Cloud Engine)**: [https://thread-city.onrender.com](https://thread-city.onrender.com)
-* 🔌 **Realtime WebSocket Gateway**: `wss://thread-city.onrender.com`
+* ⚡ **Core Backend API Gateway (Cloud Engine)**: `https://<backend-host>.onrender.com` *(Protected Instance - Rate Limited & Zero-Trust Auth)*
+* 🔌 **Realtime WebSocket Gateway**: `wss://<backend-host>.onrender.com` *(Stateful Bi-directional Pub/Sub Node)*
 * 🗄️ **Distributed Database Node**: TiDB Cloud Distributed MySQL Cluster (`ap-southeast-1` - Singapore)
 * ⚡ **In-Memory Cache & Pub/Sub Cluster**: Upstash Redis Enterprise with TLS Encryption (`ap-southeast-1` - Singapore)
 * 🛡️ **Identity & Media Storage**: Firebase Spark Infrastructure (Auth, Realtime DB, Storage Bucket, FCM)
@@ -440,10 +440,18 @@ sequenceDiagram
 
 ## 🔒 9. Security Architecture & Network Governance
 
-1. **Hybrid Double-Validation Authentication Flow**:
+1. **Hybrid Double-Validation & Zero-Trust Authentication**:
    * Phía Client đăng nhập qua Google Sign-In hoặc Email/Password bằng Firebase Authentication SDK và nhận `ID Token` (JWT có chữ ký mật mã RS256).
-   * Phía Server giải mã và thẩm định chữ ký số thông qua **Firebase Admin SDK** độc lập trước khi cấp quyền truy cập các API được bảo vệ.
-2. **Strict Dynamic CORS Configuration**:
+   * Phía Server giải mã và thẩm định chữ ký số thông qua **Firebase Admin SDK** độc lập trước khi cấp quyền truy cập các API mutation (Tạo bài, Like, Repost, Follow, Cập nhật hồ sơ).
+   * **Zero-Trust & Anti-IDOR**: Danh tính người dùng được trích xuất trực tiếp từ JWT Token (`req.user.firebaseUid`), server từ chối tin tưởng `firebase_uid` truyền qua Body để ngăn chặn triệt để hành vi giả mạo người khác.
+2. **Multi-tier Rate Limiting & Anti-Scraping / DoS Protection**:
+   * Bảo vệ các tầng endpoint trước botnet và kỹ thuật cào dữ liệu tự động thông qua `express-rate-limit`:
+     * **Global Gateway Limiter**: Tối đa 300 requests / 15 phút trên mỗi IP.
+     * **Post Creation Limiter**: Tối đa 10 bài viết / 1 phút (ngăn chặn spam flood bảng tin).
+     * **Search & Discovery Limiter**: Tối đa 30 lượt truy vấn / 1 phút (bảo vệ tài nguyên TiDB full-text index).
+     * **Auth & Sync Limiter**: Tối đa 20 requests / 15 phút (chống brute-force đăng ký/đồng bộ tài khoản).
+   * Thiết lập `trust proxy: 1` đảm bảo nhận diện chính xác Real-IP từ Reverse Proxy Cloud (Render / Cloudflare).
+3. **Strict Dynamic CORS Configuration**:
    * Whitelist động các domain được cấp phép: `https://thread-b4d7b.web.app`, `https://thread-b4d7b.firebaseapp.com`.
    * Tự động cho phép các Client Mobile Native (`Origin` header là `null` hoặc không gửi).
    * Kiểm soát chặt chẽ các headers được phép: `Content-Type`, `Authorization`, `ngrok-skip-browser-warning`.
@@ -452,30 +460,39 @@ sequenceDiagram
 
 ## 📡 10. RESTful API Specification
 
-### Authentication Module (`/api/auth`)
-| Method | Endpoint | Yêu cầu Body / Params | Mô tả chức năng |
+> 💡 **Quy tắc bảo mật**: Mọi endpoint ghi (`POST`, `PATCH`, `DELETE`) đều bắt buộc kèm header `Authorization: Bearer <Firebase_ID_Token>`. Danh tính caller được xác thực mật mã học tại server.
+
+### Authentication Module (`/api/auth`) — *(Rate Limit: 20 req / 15m)*
+| Method | Endpoint | Yêu cầu Header / Body | Mô tả chức năng |
 | :--- | :--- | :--- | :--- |
-| `POST` | `/api/auth/register` | `{ firebase_uid, email, username, nickname }` | Đăng ký hoặc đồng bộ user từ Firebase vào database MySQL |
-| `GET` | `/api/auth/by-uid/:uid` | `uid`: Firebase UID chuỗi | Lấy thông tin user hiện tại theo Firebase UID |
+| `POST` | `/api/auth/register` | Body: `{ firebase_uid, email, username, nickname }` | Đăng ký hoặc đồng bộ user từ Firebase vào database MySQL |
+| `GET` | `/api/auth/by-uid/:uid` | Params: `uid` (Firebase UID) | Lấy thông tin user hiện tại theo Firebase UID |
 
 ### Post & Feed Module (`/api/posts`)
-| Method | Endpoint | Query / Body Params | Mô tả chức năng |
+| Method | Endpoint | Yêu cầu Header / Params | Mô tả chức năng |
 | :--- | :--- | :--- | :--- |
-| `GET` | `/api/posts` | `?firebase_uid=...&following=true/false` | Lấy danh sách bài viết trang Feed (Dành cho bạn / Đang theo dõi) |
-| `POST` | `/api/posts` | `{ firebase_uid, content, parent_id, type, media }` | Tạo bài viết mới, trả lời bài viết hoặc bình luận |
-| `GET` | `/api/posts/:id/replies` | `id`: Post ID | Lấy toàn bộ danh sách câu trả lời lồng nhau của bài viết |
-| `POST` | `/api/posts/:id/like` | `{ firebase_uid }` | Bật/Tắt trạng thái Like bài viết (Atomic Toggle) |
-| `POST` | `/api/posts/:id/repost` | `{ firebase_uid }` | Bật/Tắt chia sẻ lại bài viết lên trang cá nhân |
-| `GET` | `/api/posts/user/:uid` | `uid`: Firebase UID, `?viewer_uid=...` | Lấy toàn bộ danh sách bài viết của một người dùng |
+| `GET` | `/api/posts` | Query: `?firebase_uid=...&following=true/false` | Lấy danh sách bài viết trang Feed *(Global Limit: 300 req/15m)* |
+| `POST` | `/api/posts` | `Bearer Token`<br>Body: `{ content, parent_id, type, media }` | Tạo bài viết mới hoặc bình luận *(Strict Limit: 10 req/1m, User trích xuất từ JWT)* |
+| `GET` | `/api/posts/:id/replies` | Params: `id` (Post ID) | Lấy toàn bộ danh sách câu trả lời lồng nhau của bài viết |
+| `POST` | `/api/posts/:id/like` | `Bearer Token` | Bật/Tắt trạng thái Like bài viết (Atomic Toggle, User trích xuất từ JWT) |
+| `POST` | `/api/posts/:id/repost` | `Bearer Token` | Bật/Tắt chia sẻ lại bài viết lên trang cá nhân (User trích xuất từ JWT) |
+| `GET` | `/api/posts/user/:uid` | Params: `uid`, Query: `?viewer_uid=...` | Lấy danh sách bài viết của một người dùng |
+
+### Search & Discovery Module (`/api/search`) — *(Rate Limit: 30 req / 1m)*
+| Method | Endpoint | Yêu cầu Query / Params | Mô tả chức năng |
+| :--- | :--- | :--- | :--- |
+| `GET` | `/api/search` | Query: `?q=...&type=posts\|users\|hashtags&viewer_uid=...` | Tìm kiếm hợp nhất với thuật toán Hybrid Scoring & Social Graph boost |
+| `GET` | `/api/search/hashtags/:tag/posts` | Params: `tag`, Query: `?viewer_uid=...` | Lấy danh sách bài viết gắn thẻ hashtag theo thứ tự thời gian |
 
 ### User Social Graph (`/api/users`)
-| Method | Endpoint | Query / Body Params | Mô tả chức năng |
+| Method | Endpoint | Yêu cầu Header / Params | Mô tả chức năng |
 | :--- | :--- | :--- | :--- |
-| `GET` | `/api/users/:firebase_uid` | `?viewer_uid=...` | Lấy hồ sơ người dùng kèm số đếm Followers, Following |
-| `POST` | `/api/users/follow` | `{ follower_uid, following_uid }` | Thực hiện theo dõi người dùng khác |
-| `POST` | `/api/users/unfollow` | `{ follower_uid, following_uid }` | Hủy theo dõi người dùng |
-| `GET` | `/api/users/:userId/followers` | `userId`: User ID số | Lấy danh sách những người đang theo dõi |
-| `GET` | `/api/users/:userId/following` | `userId`: User ID số | Lấy danh sách những người mình đang theo dõi |
+| `GET` | `/api/users/:firebase_uid` | Query: `?viewer_uid=...` | Lấy hồ sơ người dùng kèm số đếm Followers, Following |
+| `PATCH` | `/api/users/:firebase_uid` | `Bearer Token`<br>Body: `{ username?, nickname?, bio?, avatar_url? }` | Cập nhật hồ sơ cá nhân *(Anti-IDOR: chỉ cho phép chính chủ sửa)* |
+| `POST` | `/api/users/follow` | `Bearer Token`<br>Body: `{ following_uid }` | Theo dõi người dùng khác *(Follower UID lấy từ JWT)* |
+| `POST` | `/api/users/unfollow` | `Bearer Token`<br>Body: `{ following_uid }` | Hủy theo dõi người dùng *(Follower UID lấy từ JWT)* |
+| `GET` | `/api/users/:userId/followers` | Params: `userId` | Lấy danh sách những người đang theo dõi |
+| `GET` | `/api/users/:userId/following` | Params: `userId` | Lấy danh sách những người mình đang theo dõi |
 
 ### Direct Messaging & Notifications (`/api/messages`, `/api/notifications`)
 | Method | Endpoint | Yêu cầu | Mô tả chức năng |
@@ -499,8 +516,3 @@ sequenceDiagram
 
 ---
 
-## 👥 Authors & Engineering Credits
-
-* **System Architect & Full-Stack Developer**: Thanh Hậu
-* **Repository**: [https://github.com/aimachinius/Thread-City-](https://github.com/aimachinius/Thread-City-)
-* **License**: Open Source under the **MIT License**.
