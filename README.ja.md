@@ -13,8 +13,8 @@
 本システムはクラウドインフラストラクチャ上で24時間365日独立稼働しています：
 
 * 🖥️ **Webクライアント（本番環境）**: [https://thread-b4d7b.web.app](https://thread-b4d7b.web.app)
-* ⚡ **バックエンドAPIゲートウェイ（Cloud Engine）**: [https://thread-city.onrender.com](https://thread-city.onrender.com)
-* 🔌 **リアルタイムWebSocketゲートウェイ**: `wss://thread-city.onrender.com`
+* ⚡ **バックエンドAPIゲートウェイ（Cloud Engine）**: `https://<backend-host>.onrender.com` *(保護インスタンス - レート制限 & ゼロトラスト認証)*
+* 🔌 **リアルタイムWebSocketゲートウェイ**: `wss://<backend-host>.onrender.com` *(双方向Pub/Subノード)*
 * 🗄️ **分散データベースノード**: TiDB Cloud Distributed MySQL Cluster (`ap-southeast-1` - シンガポール)
 * ⚡ **インメモリキャッシュ & Pub/Sub**: Upstash Redis Enterprise with TLS Encryption (`ap-southeast-1` - シンガポール)
 * 🛡️ **認証 & メディアストレージ**: Firebase Spark Infrastructure (Auth, Realtime DB, Storage Bucket, FCM)
@@ -396,10 +396,18 @@ sequenceDiagram
 
 ## 🔒 9. セキュリティアーキテクチャ & ネットワークガバナンス
 
-1. **ハイブリッド二重認証（Double-Validation Flow）**:
+1. **ハイブリッド二重認証 & ゼロトラスト（Zero-Trust Authentication）**:
    * クライアントはFirebase Authenticationで認証し、RS256暗号化されたID Tokenを取得。
    * バックエンドは **Firebase Admin SDK** を用いてGoogle公開鍵サーバーと暗号学的改ざんを検証。
-2. **動的CORSホワイトリストエンジン**:
+   * **ゼロトラスト & Anti-IDOR**: ユーザーUIDは検証済みJWTから直接取得（`req.user.firebaseUid`）し、リクエストボディ内のUIDを盲信しない設計によりなりすましを完全防止。
+2. **多層レートリミッター（Multi-Tier Rate Limiting）**:
+   * `express-rate-limit` によるスクレイピング・DoS攻撃遮断：
+     * **Global Gateway Limiter**: IPごとに最大 300 requests / 15分。
+     * **Post Creation Limiter**: 最大 10 投稿 / 1分（投稿スパム防止）。
+     * **Search & Discovery Limiter**: 最大 30 クエリ / 1分（全文検索インデックス保護）。
+     * **Auth & Sync Limiter**: 最大 20 requests / 15分（アカウント同期ブルートフォース防止）。
+   * `trust proxy: 1` 設定により、Cloudリバースプロキシ配下でもクライアントの実IPを正確に特定。
+3. **動的CORSホワイトリストエンジン**:
    * 公式フロントエンド（`https://thread-b4d7b.web.app`）を厳格にホワイトリスト化。
    * モバイルネイティブ通信（`Origin` ヘッダーが未定義または `null`）を透過。
    * OPTIONSプリフライトリクエストにおける `Content-Type`, `Authorization`, `ngrok-skip-browser-warning` を許可。
@@ -408,18 +416,43 @@ sequenceDiagram
 
 ## 📡 10. RESTful API 仕様一覧
 
-| メソッド | エンドポイント | パラメータ / ボディ | 機能概要 |
+> 💡 **セキュリティ規約**: すべての更新系エンドポイント（`POST`, `PATCH`, `DELETE`）は `Authorization: Bearer <Firebase_ID_Token>` ヘッダーが必須です。
+
+### 認証モジュール (`/api/auth`) — *(レート制限: 20 req / 15分)*
+| メソッド | エンドポイント | ヘッダー / ボディ | 機能概要 |
 | :--- | :--- | :--- | :--- |
-| `POST` | `/api/auth/register` | `{ firebase_uid, email, username, nickname }` | ユーザー登録およびMySQLへのプロファイル同期 |
-| `GET` | `/api/auth/by-uid/:uid` | `uid`: Firebase UID | Firebase UIDに基づくユーザー情報の照会 |
-| `GET` | `/api/posts` | `?firebase_uid=...&following=true/false` | フィード一覧の取得（For You / Following） |
-| `POST` | `/api/posts` | `{ firebase_uid, content, parent_id, type, media }` | 投稿作成、スレッド返信、コメント投稿 |
-| `GET` | `/api/posts/:id/replies` | `id`: 投稿ID | 指定投稿に紐づく返信スレッドの取得 |
-| `POST` | `/api/posts/:id/like` | `{ firebase_uid }` | いいね状態の原子的切り替え（Toggle Like） |
-| `POST` | `/api/posts/:id/repost` | `{ firebase_uid }` | リポスト状態の原子的切り替え（Toggle Repost） |
-| `GET` | `/api/users/:firebase_uid` | `?viewer_uid=...` | ユーザープロファイル・フォロワー数の取得 |
-| `POST` | `/api/users/follow` | `{ follower_uid, following_uid }` | ユーザーのフォロー実行 |
-| `POST` | `/api/users/unfollow` | `{ follower_uid, following_uid }` | ユーザーのフォロー解除 |
+| `POST` | `/api/auth/register` | ボディ: `{ firebase_uid, email, username, nickname }` | ユーザー登録およびMySQLへのプロファイル同期 |
+| `GET` | `/api/auth/by-uid/:uid` | パラメータ: `uid` (Firebase UID) | Firebase UIDに基づくユーザー情報の照会 |
+
+### 投稿・フィードモジュール (`/api/posts`)
+| メソッド | エンドポイント | ヘッダー / パラメータ | 機能概要 |
+| :--- | :--- | :--- | :--- |
+| `GET` | `/api/posts` | クエリ: `?firebase_uid=...&following=true/false` | フィード一覧の取得 *(Global Limit: 300 req/15分)* |
+| `POST` | `/api/posts` | `Bearer Token`<br>ボディ: `{ content, parent_id, type, media }` | 投稿作成・返信 *(Strict Limit: 10 req/1分, JWTからUID取得)* |
+| `GET` | `/api/posts/:id/replies` | パラメータ: `id` (投稿ID) | 指定投稿に紐づく返信スレッドの取得 |
+| `POST` | `/api/posts/:id/like` | `Bearer Token` | いいね状態の原子的切り替え *(JWTからUID取得)* |
+| `POST` | `/api/posts/:id/repost` | `Bearer Token` | リポスト状態の原子的切り替え *(JWTからUID取得)* |
+| `GET` | `/api/posts/user/:uid` | パラメータ: `uid`, クエリ: `?viewer_uid=...` | 指定ユーザーの投稿一覧取得 |
+
+### 検索・発見モジュール (`/api/search`) — *(レート制限: 30 req / 1分)*
+| メソッド | エンドポイント | クエリ / パラメータ | 機能概要 |
+| :--- | :--- | :--- | :--- |
+| `GET` | `/api/search` | クエリ: `?q=...&type=posts\|users\|hashtags&viewer_uid=...` | ハイブリッドスコアリング統合検索 |
+| `GET` | `/api/search/hashtags/:tag/posts` | パラメータ: `tag`, クエリ: `?viewer_uid=...` | ハッシュタグ別投稿一覧の取得 |
+
+### ユーザー・ソーシャルグラフ (`/api/users`)
+| メソッド | エンドポイント | ヘッダー / パラメータ | 機能概要 |
+| :--- | :--- | :--- | :--- |
+| `GET` | `/api/users/:firebase_uid` | クエリ: `?viewer_uid=...` | ユーザープロファイル・フォロワー数の取得 |
+| `PATCH` | `/api/users/:firebase_uid` | `Bearer Token`<br>ボディ: `{ username?, nickname?, bio?, avatar_url? }` | プロファイル更新 *(Anti-IDOR: 本人のみ)* |
+| `POST` | `/api/users/follow` | `Bearer Token`<br>ボディ: `{ following_uid }` | ユーザーのフォロー実行 *(JWTからUID取得)* |
+| `POST` | `/api/users/unfollow` | `Bearer Token`<br>ボディ: `{ following_uid }` | ユーザーのフォロー解除 *(JWTからUID取得)* |
+| `GET` | `/api/users/:userId/followers` | パラメータ: `userId` | フォロワー一覧の取得 |
+| `GET` | `/api/users/:userId/following` | パラメータ: `userId` | フォロー中ユーザー一覧の取得 |
+
+### メッセージ & 通知 (`/api/messages`, `/api/notifications`)
+| メソッド | エンドポイント | 必要条件 | 機能概要 |
+| :--- | :--- | :--- | :--- |
 | `GET` | `/api/messages/conversations` | `Bearer Token` | 会話スレッド一覧の取得 |
 | `GET` | `/api/messages/:conversationId` | `Bearer Token` | 特定の会話内のメッセージ履歴取得 |
 | `GET` | `/api/notifications` | `?firebase_uid=...` | アクション通知一覧の取得 |
@@ -437,8 +470,3 @@ sequenceDiagram
 
 ---
 
-## 👥 開発者情報 & ライセンス
-
-* **System Architect & Full-Stack Developer**: Thanh Hậu
-* **GitHub Repository**: [https://github.com/aimachinius/Thread-City-](https://github.com/aimachinius/Thread-City-)
-* **License**: **MIT License** に基づくオープンソース。

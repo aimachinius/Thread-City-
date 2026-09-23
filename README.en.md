@@ -13,8 +13,8 @@
 The entire infrastructure is deployed and operating 24/7 online independently on the Cloud:
 
 * 🖥️ **Web Application (Production Client)**: [https://thread-b4d7b.web.app](https://thread-b4d7b.web.app)
-* ⚡ **Core Backend API Gateway (Cloud Engine)**: [https://thread-city.onrender.com](https://thread-city.onrender.com)
-* 🔌 **Realtime WebSocket Gateway**: `wss://thread-city.onrender.com`
+* ⚡ **Core Backend API Gateway (Cloud Engine)**: `https://<backend-host>.onrender.com` *(Protected Instance - Rate Limited & Zero-Trust Auth)*
+* 🔌 **Realtime WebSocket Gateway**: `wss://<backend-host>.onrender.com` *(Stateful Bi-directional Pub/Sub Node)*
 * 🗄️ **Distributed Database Node**: TiDB Cloud Distributed MySQL Cluster (`ap-southeast-1` - Singapore)
 * ⚡ **In-Memory Cache & Pub/Sub Cluster**: Upstash Redis Enterprise with TLS Encryption (`ap-southeast-1` - Singapore)
 * 🛡️ **Identity & Media Storage**: Firebase Spark Infrastructure (Auth, Realtime DB, Storage Bucket, FCM)
@@ -398,10 +398,18 @@ sequenceDiagram
 
 ## 🔒 9. Security Architecture & Network Governance
 
-1. **Hybrid Double-Validation Authentication**:
+1. **Hybrid Double-Validation & Zero-Trust Authentication**:
    * **Client Side**: Authenticates with Google OAuth or Email/Password via the Firebase Authentication SDK, generating an RS256 cryptographically signed `ID Token` (JWT).
-   * **Server Side**: Protected API calls pass `Authorization: Bearer <token>`. The **Firebase Admin SDK** validates signature authenticity against Google's public key endpoints.
-2. **Strict Dynamic CORS Configuration**:
+   * **Server Side**: Protected mutation endpoints enforce `Authorization: Bearer <token>`. The **Firebase Admin SDK** validates signature authenticity against Google's public key endpoints.
+   * **Zero-Trust Identity & Anti-IDOR**: The caller's UID is extracted directly from the verified cryptographic JWT (`req.user.firebaseUid`), completely eliminating reliance on client-supplied body parameters.
+2. **Multi-tier Rate Limiting & Anti-Scraping / DoS Protection**:
+   * Shields all endpoints from automated scrapers and denial-of-service attempts via `express-rate-limit`:
+     * **Global Gateway Limiter**: 300 requests / 15 minutes per IP.
+     * **Post Creation Limiter**: 10 posts / 1 minute (anti-spam feed flooding).
+     * **Search & Discovery Limiter**: 30 queries / 1 minute (protects TiDB full-text indexing engine).
+     * **Auth & Sync Limiter**: 20 requests / 15 minutes (anti-brute-force account synchronization).
+   * Enabled `trust proxy: 1` ensures accurate real-IP extraction behind Cloud Reverse Proxies (Render, Cloudflare).
+3. **Strict Dynamic CORS Configuration**:
    * Permits official web domains (`https://thread-b4d7b.web.app`, `https://thread-b4d7b.firebaseapp.com`) and custom origins via `CLIENT_URL`.
    * Native mobile HTTP clients (omitting `Origin` or sending `null`) are permitted via `if (!origin) return callback(null, true);`.
    * Whitelists headers: `Content-Type`, `Authorization`, and `ngrok-skip-browser-warning`.
@@ -410,30 +418,39 @@ sequenceDiagram
 
 ## 📡 10. RESTful API Specification
 
-### Authentication Module (`/api/auth`)
-| Method | Endpoint | Payload / Parameters | Description |
+> 💡 **Security Policy**: All mutation endpoints (`POST`, `PATCH`, `DELETE`) require the `Authorization: Bearer <Firebase_ID_Token>` header.
+
+### Authentication Module (`/api/auth`) — *(Rate Limit: 20 req / 15m)*
+| Method | Endpoint | Requirement / Body | Description |
 | :--- | :--- | :--- | :--- |
-| `POST` | `/api/auth/register` | `{ firebase_uid, email, username, nickname }` | Registers or synchronizes user into MySQL |
-| `GET` | `/api/auth/by-uid/:uid` | `uid`: Firebase UID string | Retrieves user profile by Firebase UID |
+| `POST` | `/api/auth/register` | Body: `{ firebase_uid, email, username, nickname }` | Registers or synchronizes user into MySQL |
+| `GET` | `/api/auth/by-uid/:uid` | Params: `uid` (Firebase UID string) | Retrieves user profile by Firebase UID |
 
 ### Post & Feed Module (`/api/posts`)
-| Method | Endpoint | Parameters | Description |
+| Method | Endpoint | Requirement / Params | Description |
 | :--- | :--- | :--- | :--- |
-| `GET` | `/api/posts` | `?firebase_uid=...&following=true/false` | Retrieves Feed posts (For You / Following) |
-| `POST` | `/api/posts` | `{ firebase_uid, content, parent_id, type, media }` | Creates a new post, reply, or comment |
-| `GET` | `/api/posts/:id/replies` | `id`: Post ID | Retrieves nested thread replies |
-| `POST` | `/api/posts/:id/like` | `{ firebase_uid }` | Toggles like status atomically |
-| `POST` | `/api/posts/:id/repost` | `{ firebase_uid }` | Toggles repost status |
-| `GET` | `/api/posts/user/:uid` | `uid`: Firebase UID, `?viewer_uid=...` | Retrieves posts by a specific user |
+| `GET` | `/api/posts` | Query: `?firebase_uid=...&following=true/false` | Retrieves Feed posts *(Global Limit: 300 req/15m)* |
+| `POST` | `/api/posts` | `Bearer Token`<br>Body: `{ content, parent_id, type, media }` | Creates a new post or reply *(Strict Limit: 10 req/1m, UID from JWT)* |
+| `GET` | `/api/posts/:id/replies` | Params: `id` (Post ID) | Retrieves nested thread replies |
+| `POST` | `/api/posts/:id/like` | `Bearer Token` | Toggles like status atomically *(UID from JWT)* |
+| `POST` | `/api/posts/:id/repost` | `Bearer Token` | Toggles repost status *(UID from JWT)* |
+| `GET` | `/api/posts/user/:uid` | Params: `uid`, Query: `?viewer_uid=...` | Retrieves posts by a specific user |
+
+### Search & Discovery Module (`/api/search`) — *(Rate Limit: 30 req / 1m)*
+| Method | Endpoint | Requirement / Params | Description |
+| :--- | :--- | :--- | :--- |
+| `GET` | `/api/search` | Query: `?q=...&type=posts\|users\|hashtags&viewer_uid=...` | Unified search with Hybrid Scoring & Social Graph boost |
+| `GET` | `/api/search/hashtags/:tag/posts` | Params: `tag`, Query: `?viewer_uid=...` | Chronological hashtag feed |
 
 ### User Social Graph (`/api/users`)
-| Method | Endpoint | Parameters | Description |
+| Method | Endpoint | Requirement / Params | Description |
 | :--- | :--- | :--- | :--- |
-| `GET` | `/api/users/:firebase_uid` | `?viewer_uid=...` | Fetches user profile with follow counts |
-| `POST` | `/api/users/follow` | `{ follower_uid, following_uid }` | Follows target user |
-| `POST` | `/api/users/unfollow` | `{ follower_uid, following_uid }` | Unfollows target user |
-| `GET` | `/api/users/:userId/followers` | `userId`: Numeric User ID | Lists user followers |
-| `GET` | `/api/users/:userId/following` | `userId`: Numeric User ID | Lists following users |
+| `GET` | `/api/users/:firebase_uid` | Query: `?viewer_uid=...` | Fetches user profile with follow counts |
+| `PATCH` | `/api/users/:firebase_uid` | `Bearer Token`<br>Body: `{ username?, nickname?, bio?, avatar_url? }` | Updates profile *(Anti-IDOR: owner-only)* |
+| `POST` | `/api/users/follow` | `Bearer Token`<br>Body: `{ following_uid }` | Follows target user *(Follower UID from JWT)* |
+| `POST` | `/api/users/unfollow` | `Bearer Token`<br>Body: `{ following_uid }` | Unfollows target user *(Follower UID from JWT)* |
+| `GET` | `/api/users/:userId/followers` | Params: `userId` | Lists user followers |
+| `GET` | `/api/users/:userId/following` | Params: `userId` | Lists following users |
 
 ### Direct Messaging & Notifications (`/api/messages`, `/api/notifications`)
 | Method | Endpoint | Requirement | Description |
@@ -457,8 +474,3 @@ sequenceDiagram
 
 ---
 
-## 👥 Authors & Engineering Credits
-
-* **System Architect & Full-Stack Developer**: Thanh Hậu
-* **Repository**: [https://github.com/aimachinius/Thread-City-](https://github.com/aimachinius/Thread-City-)
-* **License**: Open Source under the **MIT License**.
