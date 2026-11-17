@@ -110,3 +110,6 @@ sketch.txt
 **/*.test.ts
 test/password_validator_test.dart
 test/auth_registration_rollback_test.dart
+
+# Graphify output
+graphify-out/

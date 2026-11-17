@@ -12,13 +12,15 @@ import notificationRoutes from './routes/notificationRoutes.js';
 import searchRoutes from './routes/searchRoutes.js';
 
 import { createServer } from 'http'; // Hàm tạo server gốc của Node.js
-import { initializeSocket } from './socket.js'; // Hàm ta vừa viết ở file socket.ts
+import { initializeSocket, pingRedis } from './socket.js'; // Hàm ta vừa viết ở file socket.ts
 import './services/firebaseService.js';
 import { globalLimiter } from './middlewares/rateLimiter.js';
+import { PrismaClient } from '@prisma/client';
 
 dotenv.config();
 
 const app = express();
+const prisma = new PrismaClient();
 
 // Bắt buộc trên Render / Cloudflare để Rate Limiter nhận diện đúng IP Client qua Reverse Proxy
 app.set('trust proxy', 1);
@@ -40,10 +42,37 @@ app.use('/api/messages', messageRoutes);
 app.use('/api/notifications', notificationRoutes);
 app.use('/api/search', searchRoutes);
 
-// API kiểm tra trạng thái Server (Health check)
-app.get('/', (req: Request, res: Response) => {
-    res.send('Welcome to Thread City API! 🚀 Server is running.');
-});
+// API kiểm tra trạng thái Server (Health check) & Ping định kỳ giữ ấm Render, Upstash Redis, TiDB
+const handleHealthCheck = async (req: Request, res: Response) => {
+    let dbStatus = 'healthy';
+    let redisStatus = 'healthy';
+
+    try {
+        await prisma.$queryRaw`SELECT 1`;
+    } catch (e: any) {
+        dbStatus = `unreachable: ${e.message}`;
+    }
+
+    try {
+        const redisOk = await pingRedis();
+        redisStatus = redisOk ? 'healthy' : 'disabled_or_unreachable';
+    } catch (e: any) {
+        redisStatus = `unreachable: ${e.message}`;
+    }
+
+    res.json({
+        message: 'Thread City API is live! 🚀',
+        uptime: `${Math.floor(process.uptime())}s`,
+        timestamp: new Date().toISOString(),
+        services: {
+            database: dbStatus,
+            redis: redisStatus,
+        }
+    });
+};
+
+app.get('/', handleHealthCheck);
+app.get('/health', handleHealthCheck);
 
 
 const PORT = process.env.PORT || 3000;

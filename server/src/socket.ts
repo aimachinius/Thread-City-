@@ -10,28 +10,55 @@ import { getCorsOptions } from './config/cors.js';
 
 let io: Server;
 const prisma = new PrismaClient();
+let pubClient: Redis | null = null;
+let subClient: Redis | null = null;
+
+export const pingRedis = async (): Promise<boolean> => {
+    if (!pubClient) return false;
+    try {
+        const res = await pubClient.ping();
+        return res === 'PONG';
+    } catch {
+        return false;
+    }
+};
 
 export const initializeSocket = (httpServer: HttpServer) => {
     io = new Server(httpServer, {
         cors: getCorsOptions(),
     });
 
+    const redisUrl = process.env.REDIS_URL;
 
-    const redisUrl = process.env.REDIS_URL || "redis://localhost:6379";
-    // publish & subcribe 
-    const pubClient = new Redis(redisUrl, {
-        maxRetriesPerRequest: null,
-        retryStrategy: (times) => Math.min(times * 200, 5000), // Tăng dần, tối đa 5s
-    });
-    const subClient = pubClient.duplicate();
+    if (redisUrl && redisUrl.trim() !== '') {
+        try {
+            pubClient = new Redis(redisUrl, {
+                maxRetriesPerRequest: null,
+                retryStrategy: (times) => {
+                    if (times > 10) {
+                        console.warn('⚠️ [Redis] Đã thử kết nối 10 lần không thành công. Tạm ngưng retry để tránh nghẽn log.');
+                        return null; // Dừng retry nếu domain bị lỗi/xóa
+                    }
+                    return Math.min(times * 500, 5000);
+                },
+                connectTimeout: 10000,
+            });
+            subClient = pubClient.duplicate();
 
-    pubClient.on('connect', () => console.log(`🔌 Redis pubClient connected to: ${redisUrl}`));
-    subClient.on('connect', () => console.log('🔌 Redis subClient connected'));
+            pubClient.on('connect', () => console.log(`🔌 Redis pubClient connected successfully`));
+            subClient.on('connect', () => console.log('🔌 Redis subClient connected'));
 
-    pubClient.on('error', (err) => console.error('❌ Redis pubClient error:', err.message));
-    subClient.on('error', (err) => console.error('❌ Redis subClient error:', err.message));
+            pubClient.on('error', (err) => console.error('❌ Redis pubClient error:', err.message));
+            subClient.on('error', (err) => console.error('❌ Redis subClient error:', err.message));
 
-    io.adapter(createAdapter(pubClient, subClient));//
+            io.adapter(createAdapter(pubClient, subClient));
+            console.log('✅ Socket.io Redis adapter registered');
+        } catch (error: any) {
+            console.error('⚠️ Lỗi khởi tạo Redis adapter, fallback về In-Memory:', error.message);
+        }
+    } else {
+        console.log('ℹ️ REDIS_URL không được cấu hình. Socket.io sử dụng In-Memory adapter mặc định.');
+    }
 
     io.on('connection', async (socket) => {
         try {
