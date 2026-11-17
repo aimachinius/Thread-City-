@@ -1,4 +1,4 @@
-import 'dart:developer' as dev;
+import 'package:flutter/foundation.dart';
 import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
@@ -8,6 +8,8 @@ import 'data/repositories/post_repository.dart';
 import 'data/repositories/user_repository.dart';
 import 'data/repositories/message_repository.dart';
 import 'data/repositories/notification_repository.dart';
+import 'data/repositories/search_repository.dart';
+import 'providers/search_provider.dart';
 import 'providers/auth_provider.dart' as app_auth;
 import 'providers/home_provider.dart';
 import 'providers/user_provider.dart';
@@ -20,6 +22,9 @@ import 'firebase_options.dart';
 import 'theme/app_theme.dart';
 import 'screens/main_screen.dart';
 import 'auth/login_screen.dart';
+import 'package:flutter_localizations/flutter_localizations.dart';
+import 'l10n/app_localizations.dart';
+import 'providers/locale_provider.dart';
 
 final GlobalKey<ScaffoldMessengerState> scaffoldMessengerKey = GlobalKey<ScaffoldMessengerState>();
 final GlobalKey<NavigatorState> navigatorKey = GlobalKey<NavigatorState>();
@@ -28,16 +33,20 @@ final GlobalKey<NavigatorState> navigatorKey = GlobalKey<NavigatorState>();
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
 
+  if (kReleaseMode) {
+    debugPrint = (String? message, {int? wrapWidth}) {};
+  }
+
   await Firebase.initializeApp(
     options: DefaultFirebaseOptions.currentPlatform,
   );
-  dev.log('✅ [FIREBASE] Core ready', name: 'main');
 
   final authRepository = AuthRepository(AppConfig.authUrl);
   final postRepository = PostRepository();
   final userRepository = UserRepository();
   final messageRepository = MessageRepository();
   final notificationRepository = NotificationRepository();
+  final searchRepository = SearchRepository();
 
   runApp(
     MultiProvider(
@@ -47,6 +56,7 @@ void main() async {
         Provider<IUserRepository>.value(value: userRepository),
         Provider<IMessageRepository>.value(value: messageRepository),
         Provider<INotificationRepository>.value(value: notificationRepository),
+        Provider<ISearchRepository>.value(value: searchRepository),
         ChangeNotifierProvider(create: (_) => app_auth.AuthProvider(authRepository)),
         ChangeNotifierProxyProvider<app_auth.AuthProvider, HomeProvider>(
           create: (context) =>
@@ -76,9 +86,26 @@ void main() async {
         ),
         ChangeNotifierProxyProvider<app_auth.AuthProvider, NotificationProvider>(
           create: (context) => NotificationProvider(notificationRepository, context.read<app_auth.AuthProvider>()),
-          update: (context, auth, previous) =>
-              previous ?? NotificationProvider(notificationRepository, auth),
+          update: (context, auth, previous) {
+            if (previous != null) {
+              previous.updateAuth(auth);
+              return previous;
+            }
+            return NotificationProvider(notificationRepository, auth);
+          },
         ),
+        ChangeNotifierProxyProvider<app_auth.AuthProvider, SearchProvider>(
+          create: (context) => SearchProvider(
+            searchRepository: searchRepository,
+            authProvider: context.read<app_auth.AuthProvider>(),
+          ),
+          update: (context, auth, previous) =>
+              previous ?? SearchProvider(
+                searchRepository: searchRepository,
+                authProvider: auth,
+              ),
+        ),
+        ChangeNotifierProvider(create: (_) => LocaleProvider()),
       ],
       child: const MyApp(),
     ),
@@ -109,15 +136,24 @@ class MyApp extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Consumer<app_auth.AuthProvider>(
-      builder: (context, auth, _) {
+    return Consumer2<app_auth.AuthProvider, LocaleProvider>(
+      builder: (context, auth, localeProvider, _) {
         return MaterialApp(
           navigatorKey: navigatorKey,
           scaffoldMessengerKey: scaffoldMessengerKey,
           scrollBehavior: const AppScrollBehavior(),
           debugShowCheckedModeBanner: false,
-          title: 'Threads Clone',
+          title: 'Thread City',
           theme: AppTheme.lightTheme,
+          locale: localeProvider.locale,
+          supportedLocales: AppLocalizations.supportedLocales,
+          localizationsDelegates: const [
+            AppLocalizations.delegate,
+            GlobalMaterialLocalizations.delegate,
+            GlobalWidgetsLocalizations.delegate,
+            GlobalCupertinoLocalizations.delegate,
+          ],
+          localeResolutionCallback: AppLocalizations.resolveLocale,
           onGenerateRoute: AppRoutes.onGenerateRoute,
           // Sử dụng home thay vì initialRoute để tự động chuyển màn hình
           home: auth.isAuthenticated 

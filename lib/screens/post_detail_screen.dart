@@ -14,20 +14,31 @@ import '../widgets/reply_sheet.dart';
 import '../widgets/video_player_widget.dart';
 import '../widgets/share_post_sheet.dart';
 import '../widgets/custom_cached_image.dart';
+import '../widgets/post_options_sheet.dart';
+import '../l10n/app_localizations.dart';
 import 'profile_screen.dart';
 
 class PostDetailScreen extends StatefulWidget {
-  final PostModel post;
-  const PostDetailScreen({super.key, required this.post});
+  final PostModel? post;
+  final int? postId;
+
+  const PostDetailScreen({
+    super.key,
+    this.post,
+    this.postId,
+  }) : assert(post != null || postId != null, 'Either post or postId must be provided');
 
   @override
   State<PostDetailScreen> createState() => _PostDetailScreenState();
 }
 
 class _PostDetailScreenState extends State<PostDetailScreen> {
+  PostModel? _post;
+  bool _isPostLoading = false;
+  String? _postError;
+
   List<PostModel> _replies = [];
   bool _isLoading = true;
-  String? _error;
 
   late bool _isLiked;
   late int _likeCount;
@@ -42,11 +53,50 @@ class _PostDetailScreenState extends State<PostDetailScreen> {
   @override
   void initState() {
     super.initState();
-    _isLiked = widget.post.isLiked;
-    _likeCount = widget.post.likeCount;
-    _isReposted = widget.post.isReposted;
-    _repostCount = widget.post.repostCount;
-    WidgetsBinding.instance.addPostFrameCallback((_) => _loadReplies());
+    if (widget.post != null) {
+      _initPost(widget.post!);
+      WidgetsBinding.instance.addPostFrameCallback((_) => _loadReplies());
+    } else if (widget.postId != null) {
+      _isPostLoading = true;
+      WidgetsBinding.instance.addPostFrameCallback((_) => _fetchPostAndReplies(widget.postId!));
+    } else {
+      _postError = 'not_found';
+    }
+  }
+
+  void _initPost(PostModel post) {
+    _post = post;
+    _isLiked = post.isLiked;
+    _likeCount = post.likeCount;
+    _isReposted = post.isReposted;
+    _repostCount = post.repostCount;
+  }
+
+  Future<void> _fetchPostAndReplies(int postId) async {
+    setState(() {
+      _isPostLoading = true;
+      _postError = null;
+    });
+    try {
+      final fetchedPost = await context.read<PostProvider>().getPostById(postId);
+      if (!mounted) return;
+      setState(() {
+        _initPost(fetchedPost);
+        _isPostLoading = false;
+      });
+      _loadReplies();
+    } catch (e) {
+      if (!mounted) return;
+      setState(() {
+        _isPostLoading = false;
+        final errStr = e.toString().toLowerCase();
+        if (errStr.contains('404') || errStr.contains('not found')) {
+          _postError = context.l10n.postNotFoundOrDeleted;
+        } else {
+          _postError = context.l10n.failedToLoadPost;
+        }
+      });
+    }
   }
 
   @override
@@ -58,12 +108,12 @@ class _PostDetailScreenState extends State<PostDetailScreen> {
   }
 
   Future<void> _loadReplies() async {
+    if (_post == null) return;
     setState(() {
       _isLoading = true;
-      _error = null;
     });
     try {
-      final replies = await context.read<PostProvider>().getReplies(widget.post.id);
+      final replies = await context.read<PostProvider>().getReplies(_post!.id);
       if (mounted) {
         setState(() {
           _replies = replies;
@@ -73,7 +123,6 @@ class _PostDetailScreenState extends State<PostDetailScreen> {
     } catch (e) {
       if (mounted) {
         setState(() {
-          _error = e.toString();
           _isLoading = false;
         });
       }
@@ -85,7 +134,7 @@ class _PostDetailScreenState extends State<PostDetailScreen> {
 
   void _handleLike() async {
     final uid = context.read<AuthProvider>().currentUserData?['firebase_uid'];
-    if (_isLikingPost || uid == null || widget.post.id <= 0) return;
+    if (_isLikingPost || uid == null || _post == null || _post!.id <= 0) return;
 
     _isLikingPost = true;
     try {
@@ -99,15 +148,15 @@ class _PostDetailScreenState extends State<PostDetailScreen> {
       final homeProvider = context.read<HomeProvider>();
       final userProvider = context.read<UserProvider>();
 
-      final successIsLiked = await postProvider.toggleLike(widget.post.id, uid);
+      final successIsLiked = await postProvider.toggleLike(_post!.id, uid);
 
-      homeProvider.updatePostLike(widget.post.id, successIsLiked);
-      userProvider.updatePostLike(widget.post.id, successIsLiked);
+      homeProvider.updatePostLike(_post!.id, successIsLiked);
+      userProvider.updatePostLike(_post!.id, successIsLiked);
 
       if (successIsLiked == originalIsLiked && mounted) {
         setState(() {
           _isLiked = originalIsLiked;
-          _likeCount = widget.post.likeCount;
+          _likeCount = _post!.likeCount;
         });
       }
     } finally {
@@ -117,7 +166,7 @@ class _PostDetailScreenState extends State<PostDetailScreen> {
 
   void _handleRepost() async {
     final uid = context.read<AuthProvider>().currentUserData?['firebase_uid'];
-    if (_isRepostingPost || uid == null || widget.post.id <= 0) return;
+    if (_isRepostingPost || uid == null || _post == null || _post!.id <= 0) return;
 
     _isRepostingPost = true;
     try {
@@ -131,15 +180,15 @@ class _PostDetailScreenState extends State<PostDetailScreen> {
       final homeProvider = context.read<HomeProvider>();
       final userProvider = context.read<UserProvider>();
 
-      final successIsReposted = await postProvider.toggleRepost(widget.post.id, uid);
+      final successIsReposted = await postProvider.toggleRepost(_post!.id, uid);
 
-      homeProvider.updatePostRepost(widget.post.id, successIsReposted);
-      userProvider.updatePostRepost(widget.post.id, successIsReposted);
+      homeProvider.updatePostRepost(_post!.id, successIsReposted);
+      userProvider.updatePostRepost(_post!.id, successIsReposted);
 
       if (successIsReposted == originalIsReposted && mounted) {
         setState(() {
           _isReposted = originalIsReposted;
-          _repostCount = widget.post.repostCount;
+          _repostCount = _post!.repostCount;
         });
       }
     } finally {
@@ -148,12 +197,13 @@ class _PostDetailScreenState extends State<PostDetailScreen> {
   }
 
   void _openReplySheet() {
+    if (_post == null) return;
     showModalBottomSheet(
       context: context,
       isScrollControlled: true,
       backgroundColor: Colors.transparent,
       builder: (_) => ReplySheet(
-        post: widget.post,
+        post: _post!,
         onReplyCreated: (newReply) {
           setState(() {
             _replies.add(newReply);
@@ -175,7 +225,7 @@ class _PostDetailScreenState extends State<PostDetailScreen> {
 
   Future<void> _handleSendComment() async {
     final text = _commentController.text.trim();
-    if (text.isEmpty || _isSubmittingComment) return;
+    if (text.isEmpty || _isSubmittingComment || _post == null) return;
 
     final authProvider = context.read<AuthProvider>();
     final postProvider = context.read<PostProvider>();
@@ -186,7 +236,7 @@ class _PostDetailScreenState extends State<PostDetailScreen> {
     final firebaseUid = currentUser?['firebase_uid'];
     if (firebaseUid == null) {
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Vui lòng đăng nhập để bình luận')),
+        SnackBar(content: Text(context.l10n.loginToComment)),
       );
       return;
     }
@@ -196,7 +246,7 @@ class _PostDetailScreenState extends State<PostDetailScreen> {
     final tempComment = PostModel(
       id: tempId,
       userId: currentUser?['id'] is int ? currentUser!['id'] : 0,
-      parentId: widget.post.id,
+      parentId: _post!.id,
       content: text,
       type: PostType.comment,
       createdAt: DateTime.now(),
@@ -220,8 +270,8 @@ class _PostDetailScreenState extends State<PostDetailScreen> {
       _replies.add(tempComment);
       _isSubmittingComment = true;
     });
-    homeProvider.incrementCommentCount(widget.post.id);
-    userProvider.incrementCommentCount(widget.post.id);
+    homeProvider.incrementCommentCount(_post!.id);
+    userProvider.incrementCommentCount(_post!.id);
 
     // Cuộn mượt xuống cuối danh sách
     WidgetsBinding.instance.addPostFrameCallback((_) {
@@ -239,11 +289,12 @@ class _PostDetailScreenState extends State<PostDetailScreen> {
       final realPost = await postProvider.createPost(
         firebaseUid: firebaseUid,
         content: text,
-        parentId: widget.post.id,
+        parentId: _post!.id,
         type: 'comment',
       );
 
       if (realPost != null && mounted) {
+
         setState(() {
           final idx = _replies.indexWhere((r) => r.id == tempId);
           if (idx != -1) {
@@ -258,7 +309,7 @@ class _PostDetailScreenState extends State<PostDetailScreen> {
         });
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
-            content: Text(postProvider.errorMessage ?? 'Không thể gửi bình luận'),
+            content: Text(postProvider.errorMessage ?? context.l10n.failedToSendComment),
             backgroundColor: AppColors.error,
           ),
         );
@@ -270,7 +321,7 @@ class _PostDetailScreenState extends State<PostDetailScreen> {
           _commentController.text = text;
         });
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Lỗi gửi bình luận: $e'), backgroundColor: AppColors.error),
+          SnackBar(content: Text(context.l10n.failedToSendComment), backgroundColor: AppColors.error),
         );
       }
     } finally {
@@ -303,6 +354,121 @@ class _PostDetailScreenState extends State<PostDetailScreen> {
 
   @override
   Widget build(BuildContext context) {
+    if (_isPostLoading) {
+      return Scaffold(
+        backgroundColor: AppColors.cream,
+        appBar: AppBar(
+          title: Text(
+            'Thread',
+            style: GoogleFonts.quicksand(
+              fontWeight: FontWeight.w700,
+              fontSize: 16,
+              color: AppColors.ink,
+            ),
+          ),
+          centerTitle: true,
+          elevation: 0,
+          backgroundColor: AppColors.cream,
+          foregroundColor: AppColors.ink,
+          leading: BouncyTap(
+            onTap: () {
+              if (Navigator.canPop(context)) {
+                Navigator.pop(context);
+              } else {
+                Navigator.pushReplacementNamed(context, '/');
+              }
+            },
+            child: const Icon(
+              Icons.arrow_back_ios_new_rounded,
+              color: AppColors.ink,
+              size: 20,
+            ),
+          ),
+        ),
+        body: const Center(
+          child: CircularProgressIndicator(color: AppColors.coral),
+        ),
+      );
+    }
+
+    if (_postError != null || _post == null) {
+      return Scaffold(
+        backgroundColor: AppColors.cream,
+        appBar: AppBar(
+          title: Text(
+            'Thread',
+            style: GoogleFonts.quicksand(
+              fontWeight: FontWeight.w700,
+              fontSize: 16,
+              color: AppColors.ink,
+            ),
+          ),
+          centerTitle: true,
+          elevation: 0,
+          backgroundColor: AppColors.cream,
+          foregroundColor: AppColors.ink,
+          leading: BouncyTap(
+            onTap: () {
+              if (Navigator.canPop(context)) {
+                Navigator.pop(context);
+              } else {
+                Navigator.pushReplacementNamed(context, '/');
+              }
+            },
+            child: const Icon(
+              Icons.arrow_back_ios_new_rounded,
+              color: AppColors.ink,
+              size: 20,
+            ),
+          ),
+        ),
+        body: Center(
+          child: Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 24.0),
+            child: Column(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                const Icon(
+                  Icons.article_outlined,
+                  size: 64,
+                  color: AppColors.inkSoft,
+                ),
+                const SizedBox(height: 16),
+                Text(
+                  _postError == 'not_found' ? context.l10n.postNotFoundOrDeleted : (_postError ?? context.l10n.postNotFoundOrDeleted),
+                  textAlign: TextAlign.center,
+                  style: GoogleFonts.quicksand(
+                    fontSize: 16,
+                    fontWeight: FontWeight.w600,
+                    color: AppColors.ink,
+                  ),
+                ),
+                const SizedBox(height: 24),
+                ElevatedButton(
+                  onPressed: () {
+                    if (Navigator.canPop(context)) {
+                      Navigator.pop(context);
+                    } else {
+                      Navigator.pushReplacementNamed(context, '/');
+                    }
+                  },
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: AppColors.ink,
+                    foregroundColor: Colors.white,
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(12),
+                    ),
+                    padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 12),
+                  ),
+                  child: Text(context.l10n.close),
+                ),
+              ],
+            ),
+          ),
+        ),
+      );
+    }
+
     return Scaffold(
       backgroundColor: AppColors.cream,
       appBar: AppBar(
@@ -319,7 +485,13 @@ class _PostDetailScreenState extends State<PostDetailScreen> {
         backgroundColor: AppColors.cream,
         foregroundColor: AppColors.ink,
         leading: BouncyTap(
-          onTap: () => Navigator.pop(context),
+          onTap: () {
+            if (Navigator.canPop(context)) {
+              Navigator.pop(context);
+            } else {
+              Navigator.pushReplacementNamed(context, '/');
+            }
+          },
           child: const Icon(
             Icons.arrow_back_ios_new_rounded,
             color: AppColors.ink,
@@ -344,7 +516,7 @@ class _PostDetailScreenState extends State<PostDetailScreen> {
   Widget _buildInlineCommentBar() {
     final currentUser = context.watch<AuthProvider>().currentUserData;
     final avatarUrl = currentUser?['avatar_url'];
-    final targetName = widget.post.author?.nickname ?? widget.post.author?.username ?? '';
+    final targetName = _post?.author?.nickname ?? _post?.author?.username ?? '';
 
     return Container(
       padding: EdgeInsets.only(
@@ -381,7 +553,7 @@ class _PostDetailScreenState extends State<PostDetailScreen> {
                     color: AppColors.ink,
                   ),
                   decoration: InputDecoration(
-                    hintText: 'Trả lời $targetName...',
+                    hintText: context.l10n.replyTo(targetName),
                     hintStyle: GoogleFonts.nunito(
                       color: AppColors.inkSoft,
                       fontSize: 13.5,
@@ -472,14 +644,22 @@ class _PostDetailScreenState extends State<PostDetailScreen> {
         return _ReplyCard(
           reply: reply,
           onReplyAdded: _loadReplies,
-          originalAuthorId: widget.post.userId,
+          onReplyDeleted: () {
+            setState(() {
+              _replies.removeWhere((r) => r.id == reply.id);
+              if (_post != null && _post!.commentCount > 0) {
+                _post = _post!.copyWith(commentCount: _post!.commentCount - 1);
+              }
+            });
+          },
+          originalAuthorId: _post!.userId,
         );
       },
     );
   }
 
   Widget _buildOriginalPost() {
-    final post = widget.post;
+    final post = _post!;
     final author = post.author;
 
     return Padding(
@@ -518,7 +698,21 @@ class _PostDetailScreenState extends State<PostDetailScreen> {
                 style: const TextStyle(color: AppColors.textSecondary, fontSize: 14),
               ),
               const SizedBox(width: 8),
-              const Icon(Icons.more_horiz, color: AppColors.textSecondary, size: 20),
+              BouncyTap(
+                onTap: () => showPostOptionsSheet(
+                  context,
+                  post: post,
+                  onDeleted: () {
+                    if (mounted) {
+                      Navigator.pop(context);
+                    }
+                  },
+                ),
+                child: const Padding(
+                  padding: EdgeInsets.all(4.0),
+                  child: Icon(Icons.more_horiz, color: AppColors.textSecondary, size: 20),
+                ),
+              ),
             ],
           ),
           const SizedBox(height: 12),
@@ -646,9 +840,11 @@ class _PostDetailScreenState extends State<PostDetailScreen> {
 
   String _timeAgo(DateTime dt) {
     final diff = DateTime.now().difference(dt);
-    if (diff.inMinutes < 60) return '${diff.inMinutes}m';
-    if (diff.inHours < 24) return '${diff.inHours}h';
-    return '${diff.inDays}d';
+    if (diff.inMinutes < 1) return context.l10n.timeJustNow;
+    if (diff.inMinutes < 60) return context.l10n.timeMinutes(diff.inMinutes);
+    if (diff.inHours < 24) return context.l10n.timeHours(diff.inHours);
+    if (diff.inDays < 7) return context.l10n.timeDays(diff.inDays);
+    return context.l10n.timeWeeks(diff.inDays ~/ 7);
   }
 }
 
@@ -767,11 +963,13 @@ class _ActionBtn extends StatelessWidget {
 class _ReplyCard extends StatefulWidget {
   final PostModel reply;
   final VoidCallback? onReplyAdded;
+  final VoidCallback? onReplyDeleted;
   final int originalAuthorId;
 
   const _ReplyCard({
     required this.reply,
     this.onReplyAdded,
+    this.onReplyDeleted,
     required this.originalAuthorId,
   });
 
@@ -955,6 +1153,22 @@ class _ReplyCardState extends State<_ReplyCard> {
                             Text(
                               _timeAgo(widget.reply.createdAt),
                               style: const TextStyle(color: AppColors.textSecondary, fontSize: 13),
+                            ),
+                            const SizedBox(width: 4),
+                            BouncyTap(
+                              onTap: () => showPostOptionsSheet(
+                                context,
+                                post: widget.reply,
+                                onDeleted: widget.onReplyDeleted,
+                              ),
+                              child: const Padding(
+                                padding: EdgeInsets.all(2.0),
+                                child: Icon(
+                                  Icons.more_horiz,
+                                  size: 16,
+                                  color: AppColors.textSecondary,
+                                ),
+                              ),
                             ),
                           ],
                         ),
@@ -1182,7 +1396,7 @@ class _ReplyCardState extends State<_ReplyCard> {
                       });
                     },
                     child: Text(
-                      'Xem thêm ${totalReplies - (authorReply != null ? 1 : 0)} phản hồi...',
+                      context.l10n.viewMoreReplies(totalReplies - (authorReply != null ? 1 : 0)),
                       style: const TextStyle(
                         color: AppColors.textSecondary,
                         fontSize: 13,
@@ -1220,7 +1434,7 @@ class _ReplyCardState extends State<_ReplyCard> {
                   GestureDetector(
                     onTap: () => _navigateToProfile(context, author),
                     child: Text(
-                      author?.username ?? 'Tác giả',
+                      author?.username ?? context.l10n.authorBadge,
                       style: const TextStyle(
                         fontWeight: FontWeight.bold,
                         fontSize: 13,
@@ -1235,9 +1449,9 @@ class _ReplyCardState extends State<_ReplyCard> {
                         color: Colors.black.withOpacity(0.06),
                         borderRadius: BorderRadius.circular(4),
                       ),
-                      child: const Text(
-                        'Tác giả',
-                        style: TextStyle(
+                      child: Text(
+                        context.l10n.authorBadge,
+                        style: const TextStyle(
                           fontSize: 10,
                           fontWeight: FontWeight.bold,
                           color: Colors.black54,
@@ -1251,6 +1465,24 @@ class _ReplyCardState extends State<_ReplyCard> {
                     style: const TextStyle(
                       color: AppColors.textSecondary,
                       fontSize: 11,
+                    ),
+                  ),
+                  const SizedBox(width: 4),
+                  BouncyTap(
+                    onTap: () => showPostOptionsSheet(
+                      context,
+                      post: authorReply,
+                      onDeleted: () {
+                        widget.onReplyAdded?.call();
+                      },
+                    ),
+                    child: const Padding(
+                      padding: EdgeInsets.all(2.0),
+                      child: Icon(
+                        Icons.more_horiz,
+                        size: 14,
+                        color: AppColors.textSecondary,
+                      ),
                     ),
                   ),
                 ],
@@ -1267,9 +1499,11 @@ class _ReplyCardState extends State<_ReplyCard> {
 
   String _timeAgo(DateTime dt) {
     final diff = DateTime.now().difference(dt);
-    if (diff.inMinutes < 60) return '${diff.inMinutes}m';
-    if (diff.inHours < 24) return '${diff.inHours}h';
-    return '${diff.inDays}d';
+    if (diff.inMinutes < 1) return context.l10n.timeJustNow;
+    if (diff.inMinutes < 60) return context.l10n.timeMinutes(diff.inMinutes);
+    if (diff.inHours < 24) return context.l10n.timeHours(diff.inHours);
+    if (diff.inDays < 7) return context.l10n.timeDays(diff.inDays);
+    return context.l10n.timeWeeks(diff.inDays ~/ 7);
   }
 }
 

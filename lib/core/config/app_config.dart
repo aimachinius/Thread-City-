@@ -20,4 +20,28 @@ class AppConfig {
   static String get baseUrl => '$serverUrl/api';
   static String get authUrl => '$baseUrl/auth';
   static String get postsUrl => '$baseUrl/posts';
+
+  // Public URL cho người dùng mở bằng Web Browser hoặc Share
+  static const String _envPublicAppUrl = String.fromEnvironment('PUBLIC_APP_URL', defaultValue: '');
+  static String get publicAppUrl {
+    if (_envPublicAppUrl.isNotEmpty) {
+      return _envPublicAppUrl;
+    }
+    if (kIsWeb) {
+      final origin = Uri.base.origin;
+      if (origin.isNotEmpty && origin != 'null') {
+        return origin;
+      }
+    }
+    return 'https://thread-b4d7b.web.app';
+  }
+
+  /// URL chuẩn để chia sẻ bài viết (Copy Link, Native OS Share)
+  /// Ví dụ: https://thread-b4d7b.web.app/post/123
+  static String getPostShareUrl(int postId) => '$publicAppUrl/post/$postId';
+
+  /// URL chuẩn để chia sẻ trang cá nhân (Copy Link, Native OS Share)
+  /// Ví dụ: https://thread-b4d7b.web.app/user/alex
+  static String getProfileShareUrl(String username) => '$publicAppUrl/user/$username';
 }
+

@@ -7,6 +7,7 @@ import '../providers/user_provider.dart';
 import '../providers/post_provider.dart';
 import '../theme/app_colors.dart';
 import 'custom_cached_image.dart';
+import '../l10n/app_localizations.dart';
 
 class ReplySheet extends StatefulWidget {
   final PostModel post;
@@ -48,7 +49,7 @@ class _ReplySheetState extends State<ReplySheet> {
 
     if (firebaseUid == null) {
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Vui lòng đăng nhập')),
+        SnackBar(content: Text(context.l10n.pleaseLoginFirst)),
       );
       setState(() => _isPosting = false);
       return;
@@ -74,7 +75,7 @@ class _ReplySheetState extends State<ReplySheet> {
     } catch (e) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Lỗi: $e')),
+          SnackBar(content: Text(context.l10n.failedToSendComment)),
         );
       }
     } finally {
@@ -84,6 +85,7 @@ class _ReplySheetState extends State<ReplySheet> {
 
   @override
   Widget build(BuildContext context) {
+    final l10n = context.l10n;
     final userData = context.read<AuthProvider>().currentUserData;
     final currentUsername = userData?['nickname'] ?? userData?['username'] ?? 'me';
     final currentUserAvatar = userData?['avatar_url'];
@@ -109,7 +111,7 @@ class _ReplySheetState extends State<ReplySheet> {
             child: Row(
               children: [
                 Text(
-                  'Trả lời ${widget.post.author?.nickname ?? widget.post.author?.username ?? ''}',
+                  l10n.replyTo(widget.post.author?.nickname ?? widget.post.author?.username ?? ''),
                   style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16),
                 ),
               ],
@@ -153,7 +155,7 @@ class _ReplySheetState extends State<ReplySheet> {
                         autofocus: true,
                         maxLines: null,
                         decoration: InputDecoration(
-                          hintText: 'Trả lời...',
+                          hintText: l10n.writeReplyPlaceholder,
                           border: InputBorder.none,
                           hintStyle: TextStyle(color: Colors.grey[400], fontSize: 14),
                           isDense: true,
@@ -183,7 +185,7 @@ class _ReplySheetState extends State<ReplySheet> {
                   ),
                   child: _isPosting
                       ? const SizedBox(width: 16, height: 16, child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white))
-                      : const Text('Đăng', style: TextStyle(fontWeight: FontWeight.bold)),
+                      : Text(l10n.postChip, style: const TextStyle(fontWeight: FontWeight.bold)),
                 ),
               ],
             ),

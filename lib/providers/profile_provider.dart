@@ -9,6 +9,7 @@ import 'package:image_picker/image_picker.dart';
 import '../models/post_model.dart';
 import '../data/repositories/post_repository.dart';
 import '../data/repositories/user_repository.dart';
+import '../l10n/app_localizations.dart';
 
 class ProfileProvider extends ChangeNotifier {
   final IUserRepository _userRepository;
@@ -45,9 +46,8 @@ class ProfileProvider extends ChangeNotifier {
       
       _userData = userResult;
       _userPosts = postsResult;
-    } catch (e) {
-      _errorMessage = 'Không thể tải thông tin cá nhân. Vui lòng thử lại.';
-      print('Lỗi fetchProfile: $e');
+    } catch (_) {
+      _errorMessage = AppLocalizations.current.failedToLoadProfile;
     } finally {
       _isLoading = false;
       notifyListeners();
@@ -74,9 +74,8 @@ class ProfileProvider extends ChangeNotifier {
       // Sau khi update thành công, tải lại profile để cập nhật UI
       await fetchProfile(firebaseUid, viewerUid: firebaseUid);
       return true;
-    } catch (e) {
-      _errorMessage = 'Không thể cập nhật thông tin. Vui lòng thử lại.';
-      print('Lỗi updateProfile: $e');
+    } catch (_) {
+      _errorMessage = AppLocalizations.current.failedToUpdateProfile;
       return false;
     } finally {
       _isLoading = false;
@@ -121,7 +120,7 @@ class ProfileProvider extends ChangeNotifier {
       
       // Kiểm tra xem Firebase Storage có chặn upload không (do luật bảo mật)
       if (snapshot.state == TaskState.error) {
-        throw Exception('Firebase Storage từ chối lưu file. Hãy kiểm tra lại Rules.');
+        throw Exception(AppLocalizations.current.storagePermissionDenied);
       }
       
       final downloadUrl = await snapshot.ref.getDownloadURL();
@@ -131,9 +130,8 @@ class ProfileProvider extends ChangeNotifier {
         firebaseUid: firebaseUid,
         avatarUrl: downloadUrl,
       );
-    } catch (e) {
-      _errorMessage = 'Lỗi tải ảnh lên: $e';
-      print('Lỗi upload avatar chi tiết: $e');
+    } catch (_) {
+      _errorMessage = AppLocalizations.current.failedToUploadImage;
       return false;
     } finally {
       _isLoading = false;

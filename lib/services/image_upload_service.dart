@@ -1,6 +1,5 @@
 import 'dart:io';
 import 'package:flutter/foundation.dart' show kIsWeb;
-import 'package:http/http.dart' as http;
 import 'package:firebase_storage/firebase_storage.dart';
 import 'package:image_picker/image_picker.dart';
 
@@ -36,10 +35,8 @@ class ImageUploadService {
       
       // Lấy link tải xuống trực tiếp từ Firebase Storage
       final downloadUrl = await snapshot.ref.getDownloadURL();
-      print('[STORAGE] 🎉 Tải ảnh Post Media lên Firebase Storage thành công: $downloadUrl');
       return downloadUrl;
-    } catch (e) {
-      print('Lỗi upload Firebase Storage chi tiết: $e');
+    } catch (_) {
       return null;
     }
   }

@@ -23,3 +23,7 @@ yarn-error.log*
 .ecc 
 # Database backups
 *.sql
+
+# Tests
+*.test.ts
+**/*.test.ts

@@ -9,6 +9,7 @@ import 'auth_provider.dart' as app_auth;
 import '../main.dart';
 import '../widgets/top_notification_banner.dart';
 import '../screens/chat_detail_screen.dart';
+import '../l10n/app_localizations.dart';
 
 class MessageProvider extends ChangeNotifier {
   final IMessageRepository _messageRepository;
@@ -256,8 +257,7 @@ class MessageProvider extends ChangeNotifier {
       }
       notifyListeners();
       return true;
-    } catch (e) {
-      print('Lỗi markAsRead: $e');
+    } catch (_) {
       return false;
     }
   }
@@ -274,8 +274,7 @@ class MessageProvider extends ChangeNotifier {
       _conversations.removeWhere((c) => c.id == conversationId);
       notifyListeners();
       return true;
-    } catch (e) {
-      print('Lỗi blockConversation: $e');
+    } catch (_) {
       return false;
     }
   }
@@ -295,8 +294,7 @@ class MessageProvider extends ChangeNotifier {
       }
       notifyListeners();
       return true;
-    } catch (e) {
-      print('Lỗi deleteMessage: $e');
+    } catch (_) {
       return false;
     }
   }
@@ -429,12 +427,13 @@ class MessageProvider extends ChangeNotifier {
       // Show top-down in-app notification if it's not the active conversation and not sent by me
       if (isOutsideThisChat && isFromOther && newMessage.sender != null) {
         final sender = newMessage.sender!;
+        final strings = AppLocalizations.current;
         final previewText = newMessage.type == MessageType.POST_SHARE
-            ? 'Đã chia sẻ một bài viết'
+            ? strings.sharedPostMessage
             : (newMessage.type == MessageType.IMAGE
-                ? 'Đã gửi một hình ảnh'
+                ? strings.sentPhotoNotification
                 : (newMessage.type == MessageType.VIDEO
-                    ? 'Đã gửi một video'
+                    ? strings.sentVideoNotification
                     : (newMessage.content ?? '')));
 
         TopNotificationBanner.show(

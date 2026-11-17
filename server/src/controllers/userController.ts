@@ -1,5 +1,6 @@
 import { Request, Response } from "express";
 import { PrismaClient } from "@prisma/client";
+import { getIO } from "../socket.js";
 
 const prisma = new PrismaClient();
 
@@ -17,7 +18,9 @@ export const getUserProfile = async (req: Request, res: Response) => {
                     select: {
                         followers: true,
                         following: true,
-                        posts: true
+                        posts: {
+                            where: { deleted_at: null, parent_id: null }
+                        }
                     }
                 }
             }
@@ -50,8 +53,8 @@ export const getUserProfile = async (req: Request, res: Response) => {
                 ...user,
                 password_hash: undefined,
                 stats: {
-                    followers: user._count.followers,
-                    following: user._count.following,
+                    followers: user._count.following, // Số người theo dõi user này (following_id = user.id)
+                    following: user._count.followers, // Số người user này đang theo dõi (follower_id = user.id)
                     posts: user._count.posts
                 },
                 is_following
@@ -66,6 +69,13 @@ export const getUserProfile = async (req: Request, res: Response) => {
 // Cập nhật thông tin Profile
 export const updateProfile = async (req: Request, res: Response) => {
     const firebase_uid = req.params.firebase_uid as string;
+    const callerUid = (req as any).user?.firebaseUid;
+
+    // 🛡️ BẢO VỆ IDOR: Chỉ cho phép người dùng tự sửa thông tin của chính mình
+    if (callerUid && callerUid !== firebase_uid) {
+        return res.status(403).json({ message: "Forbidden: You can only update your own profile" });
+    }
+
     const { bio, avatar_url, username } = req.body;
 
     try {
@@ -93,7 +103,8 @@ export const updateProfile = async (req: Request, res: Response) => {
 
 // Theo dõi người dùng
 export const followUser = async (req: Request, res: Response) => {
-    const { follower_uid, following_id } = req.body;
+    const follower_uid = (req as any).user?.firebaseUid || req.body.follower_uid;
+    const { following_id } = req.body;
 
     if (!follower_uid || !following_id) {
         return res.status(400).json({ message: "follower_uid and following_id are required" });
@@ -135,7 +146,15 @@ export const followUser = async (req: Request, res: Response) => {
             }
         });
 
-        // Tạo thông báo follow
+        // Tạo thông báo follow (dọn dẹp thông báo cũ nếu có)
+        await prisma.notification.deleteMany({
+            where: {
+                user_id: targetId,
+                actor_id: follower.id,
+                type: "follow"
+            }
+        }).catch(() => {});
+
         await prisma.notification.create({
             data: {
                 user_id: targetId,
@@ -144,6 +163,13 @@ export const followUser = async (req: Request, res: Response) => {
                 is_read: false
             }
         });
+
+        try {
+            getIO().to(`user_${targetId}`).emit('new_notification', {
+                type: 'follow',
+                actorId: follower.id
+            });
+        } catch (_) {}
 
         return res.json({ message: "Followed successfully" });
     } catch (error) {
@@ -154,7 +180,8 @@ export const followUser = async (req: Request, res: Response) => {
 
 // Bỏ theo dõi người dùng
 export const unfollowUser = async (req: Request, res: Response) => {
-    const { follower_uid, following_id } = req.body;
+    const follower_uid = (req as any).user?.firebaseUid || req.body.follower_uid;
+    const { following_id } = req.body;
 
     if (!follower_uid || !following_id) {
         return res.status(400).json({ message: "follower_uid and following_id are required" });
@@ -177,6 +204,14 @@ export const unfollowUser = async (req: Request, res: Response) => {
                 following_id: targetId
             }
         });
+
+        await prisma.notification.deleteMany({
+            where: {
+                user_id: targetId,
+                actor_id: follower.id,
+                type: "follow"
+            }
+        }).catch(() => {});
 
         return res.json({ message: "Unfollowed successfully" });
     } catch (error) {

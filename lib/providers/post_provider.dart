@@ -51,8 +51,7 @@ class PostProvider extends ChangeNotifier {
         firebaseUid: firebaseUid,
       );
       return isLiked;
-    } catch (e) {
-      print('Lỗi toggleLike: $e');
+    } catch (_) {
       return false;
     }
   }
@@ -61,8 +60,7 @@ class PostProvider extends ChangeNotifier {
     try {
       final firebaseUid = _authProvider.currentUserData?['firebase_uid'];
       return await _postRepository.getReplies(postId, firebaseUid: firebaseUid);
-    } catch (e) {
-      print('Lỗi getReplies: $e');
+    } catch (_) {
       return [];
     }
   }
@@ -73,9 +71,35 @@ class PostProvider extends ChangeNotifier {
         postId: postId,
         firebaseUid: firebaseUid,
       );
-    } catch (e) {
-      print('Lỗi toggleRepost: $e');
+    } catch (_) {
       return false;
     }
   }
+
+  Future<PostModel> getPostById(int postId) async {
+    try {
+      final firebaseUid = _authProvider.currentUserData?['firebase_uid'];
+      return await _postRepository.getPostById(postId, viewerUid: firebaseUid);
+    } catch (e) {
+      rethrow;
+    }
+  }
+
+  Future<bool> deletePost(int postId) async {
+    _isLoading = true;
+    _errorMessage = null;
+    notifyListeners();
+
+    try {
+      final success = await _postRepository.deletePost(postId);
+      return success;
+    } catch (e) {
+      _errorMessage = e.toString();
+      return false;
+    } finally {
+      _isLoading = false;
+      notifyListeners();
+    }
+  }
 }
+

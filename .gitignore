@@ -105,3 +105,8 @@ secrets.json
 sketch.txt
 
 .firebase/
+
+# Tests
+**/*.test.ts
+test/password_validator_test.dart
+test/auth_registration_rollback_test.dart

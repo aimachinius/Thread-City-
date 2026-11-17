@@ -1,5 +1,6 @@
 import 'dart:convert';
 import 'package:http/http.dart' as http;
+import 'package:firebase_auth/firebase_auth.dart';
 import '../../core/config/app_config.dart';
 
 abstract class IUserRepository {
@@ -18,6 +19,18 @@ abstract class IUserRepository {
 
 class UserRepository implements IUserRepository {
   final String baseUrl = AppConfig.baseUrl;
+
+  Future<Map<String, String>> _authHeaders() async {
+    final token = await FirebaseAuth.instance.currentUser?.getIdToken();
+    final headers = <String, String>{
+      'Content-Type': 'application/json',
+      'ngrok-skip-browser-warning': 'true',
+    };
+    if (token != null && token.isNotEmpty) {
+      headers['Authorization'] = 'Bearer $token';
+    }
+    return headers;
+  }
 
   @override
   Future<Map<String, dynamic>> getUserProfile(String firebaseUid, {String? viewerUid}) async {
@@ -54,7 +67,7 @@ class UserRepository implements IUserRepository {
 
       final response = await http.patch(
         Uri.parse('$baseUrl/users/$firebaseUid'),
-        headers: {'Content-Type': 'application/json', 'ngrok-skip-browser-warning': 'true'},
+        headers: await _authHeaders(),
         body: jsonEncode(body),
       ).timeout(const Duration(seconds: 10));
 
@@ -72,7 +85,7 @@ class UserRepository implements IUserRepository {
     try {
       final response = await http.post(
         Uri.parse('$baseUrl/users/follow'),
-        headers: {'Content-Type': 'application/json', 'ngrok-skip-browser-warning': 'true'},
+        headers: await _authHeaders(),
         body: jsonEncode({
           'follower_uid': followerUid,
           'following_id': followingId,
@@ -93,7 +106,7 @@ class UserRepository implements IUserRepository {
     try {
       final response = await http.post(
         Uri.parse('$baseUrl/users/unfollow'),
-        headers: {'Content-Type': 'application/json', 'ngrok-skip-browser-warning': 'true'},
+        headers: await _authHeaders(),
         body: jsonEncode({
           'follower_uid': followerUid,
           'following_id': followingId,

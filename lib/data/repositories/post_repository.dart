@@ -1,5 +1,6 @@
 import 'dart:convert';
 import 'package:http/http.dart' as http;
+import 'package:firebase_auth/firebase_auth.dart';
 import '../../models/post_model.dart';
 import '../../core/config/app_config.dart';
 
@@ -17,10 +18,24 @@ abstract class IPostRepository {
   Future<List<PostModel>> getPostsByUserUid(String firebaseUid, {String? viewerUid});
   Future<List<PostModel>> getUserReposts(String firebaseUid, {String? viewerUid});
   Future<bool> toggleRepost({required int postId, required String firebaseUid});
+  Future<PostModel> getPostById(int postId, {String? viewerUid});
+  Future<bool> deletePost(int postId);
 }
 
 class PostRepository implements IPostRepository {
   final String baseUrl = AppConfig.baseUrl;
+
+  Future<Map<String, String>> _authHeaders() async {
+    final token = await FirebaseAuth.instance.currentUser?.getIdToken();
+    final headers = <String, String>{
+      'Content-Type': 'application/json',
+      'ngrok-skip-browser-warning': 'true',
+    };
+    if (token != null && token.isNotEmpty) {
+      headers['Authorization'] = 'Bearer $token';
+    }
+    return headers;
+  }
 
   @override
   Future<List<PostModel>> getReplies(int postId, {String? firebaseUid}) async {
@@ -46,7 +61,7 @@ class PostRepository implements IPostRepository {
     try {
       final response = await http.post(
         Uri.parse('$baseUrl/posts/$postId/like'),
-        headers: {'Content-Type': 'application/json', 'ngrok-skip-browser-warning': 'true'},
+        headers: await _authHeaders(),
         body: jsonEncode({
           'firebase_uid': firebaseUid,
         }),
@@ -68,7 +83,7 @@ class PostRepository implements IPostRepository {
     try {
       final response = await http.post(
         Uri.parse('$baseUrl/posts/$postId/repost'),
-        headers: {'Content-Type': 'application/json', 'ngrok-skip-browser-warning': 'true'},
+        headers: await _authHeaders(),
         body: jsonEncode({
           'firebase_uid': firebaseUid,
         }),
@@ -107,7 +122,7 @@ class PostRepository implements IPostRepository {
 
       final response = await http.post(
         Uri.parse('$baseUrl/posts'),
-        headers: {'Content-Type': 'application/json', 'ngrok-skip-browser-warning': 'true'},
+        headers: await _authHeaders(),
         body: jsonEncode(bodyData),
       );
 
@@ -186,4 +201,66 @@ class PostRepository implements IPostRepository {
       rethrow;
     }
   }
+
+  @override
+  Future<PostModel> getPostById(int postId, {String? viewerUid}) async {
+    try {
+      final url = viewerUid != null 
+          ? '$baseUrl/posts/$postId?viewer_uid=$viewerUid'
+          : '$baseUrl/posts/$postId';
+          
+      final response = await http.get(
+        Uri.parse(url),
+        headers: {'ngrok-skip-browser-warning': 'true'},
+      ).timeout(const Duration(seconds: 10));
+
+      if (response.statusCode == 200) {
+        final dynamic data = jsonDecode(response.body);
+        return PostModel.fromMap(data);
+      } else if (response.statusCode == 404) {
+        throw Exception('Post not found');
+      } else {
+        throw Exception('Không thể tải bài viết (status: ${response.statusCode})');
+      }
+    } catch (e) {
+      rethrow;
+    }
+  }
+
+  @override
+  Future<bool> deletePost(int postId) async {
+    try {
+      final currentUid = FirebaseAuth.instance.currentUser?.uid;
+      final headers = await _authHeaders();
+      if (currentUid != null && currentUid.isNotEmpty) {
+        headers['x-firebase-uid'] = currentUid;
+      }
+
+      final url = currentUid != null && currentUid.isNotEmpty
+          ? '$baseUrl/posts/$postId?firebase_uid=$currentUid'
+          : '$baseUrl/posts/$postId';
+
+      final response = await http.delete(
+        Uri.parse(url),
+        headers: headers,
+      ).timeout(const Duration(seconds: 10));
+
+      if (response.statusCode == 200) {
+        return true;
+      } else {
+        String msg = 'Không thể xóa bài viết (status: ${response.statusCode})';
+        try {
+          final errorData = jsonDecode(response.body);
+          if (errorData is Map && errorData['message'] != null) {
+            msg = errorData['message'];
+          }
+        } catch (_) {}
+        throw Exception(msg);
+      }
+    } catch (e) {
+      rethrow;
+    }
+  }
 }
+
+

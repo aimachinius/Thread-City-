@@ -9,7 +9,9 @@ import '../theme/app_colors.dart';
 import '../widgets/bouncy_tap.dart';
 import '../widgets/post_card.dart';
 import '../widgets/custom_cached_image.dart';
+import '../widgets/share_profile_sheet.dart';
 import 'chat_detail_screen.dart';
+import '../l10n/app_localizations.dart';
 
 class ProfileScreen extends StatefulWidget {
   const ProfileScreen({
@@ -94,13 +96,12 @@ class ProfileScreenState extends State<ProfileScreen>
           _localUserReposts = results[2] as List<PostModel>;
         });
       }
-    } catch (e) {
-      debugPrint('Lỗi _fetchProfile: $e');
+    } catch (_) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text('Không thể tải trang cá nhân. Hãy kéo xuống để thử lại.'),
-            duration: Duration(seconds: 3),
+          SnackBar(
+            content: Text(context.l10n.failedToLoadProfile),
+            duration: const Duration(seconds: 3),
           ),
         );
       }
@@ -141,7 +142,7 @@ class ProfileScreenState extends State<ProfileScreen>
             _fetchProfile();
           } else {
             ScaffoldMessenger.of(context).showSnackBar(
-              const SnackBar(content: Text('Không thể lưu thay đổi')),
+              SnackBar(content: Text(context.l10n.failedToSaveProfile)),
             );
           }
         },
@@ -253,9 +254,9 @@ class ProfileScreenState extends State<ProfileScreen>
                         fontWeight: FontWeight.w700,
                         fontSize: 13.5,
                       ),
-                      tabs: const [
-                        Tab(text: 'Threads'),
-                        Tab(text: 'Đăng lại'),
+                      tabs: [
+                        Tab(text: context.l10n.tabThreads),
+                        Tab(text: context.l10n.tabReposts),
                       ],
                     ),
                   ),
@@ -314,7 +315,7 @@ class ProfileScreenState extends State<ProfileScreen>
             ),
             const SizedBox(height: 14),
             Text(
-              'Chưa có bài viết nào',
+              context.l10n.noPostsYet,
               style: GoogleFonts.quicksand(
                 color: AppColors.ink,
                 fontSize: 15,
@@ -378,7 +379,7 @@ class ProfileScreenState extends State<ProfileScreen>
             ),
             const SizedBox(height: 14),
             Text(
-              'Chưa đăng lại bài viết nào',
+              context.l10n.noRepostsYet,
               style: GoogleFonts.quicksand(
                 color: AppColors.ink,
                 fontSize: 15,
@@ -552,13 +553,13 @@ class _ProfileHeaderState extends State<_ProfileHeader> {
                   }
                   return followers;
                 }()),
-                label: 'người theo dõi',
+                label: context.l10n.followersText('').trim(),
                 onTap: () => _showFollowersFollowingSheet(context, 0),
               ),
               const SizedBox(width: 26),
               _StatItem(
                 value: _formatCount(following),
-                label: 'đang theo dõi',
+                label: context.l10n.followingText('').trim(),
                 onTap: () => _showFollowersFollowingSheet(context, 1),
               ),
             ],
@@ -582,7 +583,7 @@ class _ProfileHeaderState extends State<_ProfileHeader> {
                       ),
                       child: Center(
                         child: Text(
-                          'Chỉnh sửa',
+                          context.l10n.btnEditProfile,
                           style: GoogleFonts.quicksand(
                             fontSize: 12.5,
                             fontWeight: FontWeight.w700,
@@ -596,7 +597,17 @@ class _ProfileHeaderState extends State<_ProfileHeader> {
                 const SizedBox(width: 10),
                 Expanded(
                   child: BouncyTap(
-                    onTap: () {},
+                    onTap: () {
+                      showShareProfileSheet(
+                        context,
+                        username: widget.userData?['username'] ??
+                            widget.currentUsername,
+                        nickname: widget.userData?['nickname'] ??
+                            widget.currentNickname,
+                        avatarUrl: widget.userData?['avatar_url'] as String?,
+                        bio: widget.userData?['bio'] as String?,
+                      );
+                    },
                     child: Container(
                       padding: const EdgeInsets.symmetric(vertical: 11),
                       decoration: BoxDecoration(
@@ -606,7 +617,7 @@ class _ProfileHeaderState extends State<_ProfileHeader> {
                       ),
                       child: Center(
                         child: Text(
-                          'Chia sẻ',
+                          context.l10n.btnShareProfile,
                           style: GoogleFonts.quicksand(
                             fontSize: 12.5,
                             fontWeight: FontWeight.w700,
@@ -655,9 +666,8 @@ class _ProfileHeaderState extends State<_ProfileHeader> {
                             _isFollowing = !_isFollowing;
                           });
                           messenger.showSnackBar(
-                            const SnackBar(
-                              content:
-                                  Text('Thao tác thất bại. Vui lòng thử lại.'),
+                            SnackBar(
+                              content: Text(context.l10n.actionFailedTryAgain),
                               backgroundColor: Colors.redAccent,
                             ),
                           );
@@ -677,7 +687,7 @@ class _ProfileHeaderState extends State<_ProfileHeader> {
                       ),
                       child: Center(
                         child: Text(
-                          _isFollowing ? 'Đang theo dõi' : 'Theo dõi',
+                          _isFollowing ? context.l10n.btnFollowing : context.l10n.btnFollow,
                           style: GoogleFonts.quicksand(
                             fontSize: 12.5,
                             fontWeight: FontWeight.w700,
@@ -702,9 +712,9 @@ class _ProfileHeaderState extends State<_ProfileHeader> {
                             final navigator = Navigator.of(context);
                             if (partnerId == null) {
                               messenger.showSnackBar(
-                                const SnackBar(
-                                  content: Text('Không tìm thấy thông tin người dùng'),
-                                  duration: Duration(seconds: 2),
+                                SnackBar(
+                                  content: Text(context.l10n.userNotFound),
+                                  duration: const Duration(seconds: 2),
                                 ),
                               );
                               return;
@@ -725,17 +735,17 @@ class _ProfileHeaderState extends State<_ProfileHeader> {
                                 );
                               } else {
                                 messenger.showSnackBar(
-                                  const SnackBar(
-                                    content: Text('Không thể mở cuộc trò chuyện lúc này'),
-                                    duration: Duration(seconds: 2),
+                                  SnackBar(
+                                    content: Text(context.l10n.cannotOpenChatNow),
+                                    duration: const Duration(seconds: 2),
                                   ),
                                 );
                               }
-                            } catch (e) {
+                            } catch (_) {
                               if (mounted) {
                                 messenger.showSnackBar(
                                   SnackBar(
-                                    content: Text('Lỗi: $e'),
+                                    content: Text(context.l10n.cannotOpenChatNow),
                                     duration: const Duration(seconds: 2),
                                   ),
                                 );
@@ -764,7 +774,7 @@ class _ProfileHeaderState extends State<_ProfileHeader> {
                                 ),
                               )
                             : Text(
-                                'Nhắn tin',
+                                context.l10n.btnMessage,
                                 style: GoogleFonts.quicksand(
                                   fontSize: 12.5,
                                   fontWeight: FontWeight.w700,
@@ -977,14 +987,14 @@ class _EditProfileSheet extends StatelessWidget {
                 width: 40,
                 height: 5,
                 decoration: BoxDecoration(
-                  color: AppColors.ink.withOpacity(0.15),
+                  color: AppColors.ink.withValues(alpha: 0.15),
                   borderRadius: BorderRadius.circular(4),
                 ),
               ),
             ),
             const SizedBox(height: 18),
             Text(
-              'Chỉnh sửa trang cá nhân',
+              context.l10n.editProfileTitle,
               style: GoogleFonts.quicksand(
                 fontSize: 18,
                 fontWeight: FontWeight.w700,
@@ -992,13 +1002,13 @@ class _EditProfileSheet extends StatelessWidget {
               ),
             ),
             const SizedBox(height: 20),
-            _EditField(label: 'Tên hiển thị', controller: nameController),
+            _EditField(label: context.l10n.editNameLabel, controller: nameController),
             const SizedBox(height: 16),
             _EditField(
-              label: 'Tiểu sử',
+              label: context.l10n.editBioLabel,
               controller: bioController,
               maxLines: 3,
-              hint: 'Viết gì đó về bản thân...',
+              hint: context.l10n.editBioPlaceholder,
             ),
             const SizedBox(height: 24),
             BouncyTap(
@@ -1013,7 +1023,7 @@ class _EditProfileSheet extends StatelessWidget {
                 ),
                 child: Center(
                   child: Text(
-                    'Lưu thay đổi',
+                    context.l10n.save,
                     style: GoogleFonts.quicksand(
                       fontWeight: FontWeight.w700,
                       fontSize: 15,
@@ -1225,9 +1235,9 @@ class _FollowersFollowingSheetState extends State<_FollowersFollowingSheet>
               fontWeight: FontWeight.w500,
               fontSize: 15,
             ),
-            tabs: const [
-              Tab(text: 'Người theo dõi'),
-              Tab(text: 'Đang theo dõi'),
+            tabs: [
+              Tab(text: context.l10n.followersLabel),
+              Tab(text: context.l10n.followingLabel),
             ],
           ),
           Container(height: 0.5, color: AppColors.border),
@@ -1238,9 +1248,9 @@ class _FollowersFollowingSheetState extends State<_FollowersFollowingSheet>
               controller: _tabController,
               children: [
                 _buildUserList(_followers, _isLoadingFollowers,
-                    'Chưa có người theo dõi nào'),
+                    context.l10n.noFollowersYet),
                 _buildUserList(
-                    _following, _isLoadingFollowing, 'Chưa theo dõi ai'),
+                    _following, _isLoadingFollowing, context.l10n.noFollowingYet),
               ],
             ),
           ),

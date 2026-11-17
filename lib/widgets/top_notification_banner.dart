@@ -4,6 +4,7 @@ import '../main.dart';
 import '../theme/app_colors.dart';
 import '../theme/app_typography.dart';
 import 'custom_cached_image.dart';
+import '../l10n/app_localizations.dart';
 
 class TopNotificationBanner {
   static OverlayEntry? _currentEntry;
@@ -211,7 +212,7 @@ class _TopBannerWidgetState extends State<_TopBannerWidget>
                               ),
                               const SizedBox(width: 6),
                               Text(
-                                'Vừa xong',
+                                context.l10n.justNow,
                                 style: AppTypography.bodySmall.copyWith(
                                   color: AppColors.textTertiary,
                                   fontSize: 11,

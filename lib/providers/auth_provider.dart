@@ -3,6 +3,9 @@ import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
 import '../data/repositories/auth_repository.dart';
 
+import '../utils/password_validator.dart';
+import '../l10n/app_localizations.dart';
+
 class AuthProvider extends ChangeNotifier {
   final AuthRepository _authRepository;
   FirebaseAuth get _firebaseAuth => FirebaseAuth.instance;
@@ -11,6 +14,7 @@ class AuthProvider extends ChangeNotifier {
   Map<String, dynamic>? _currentUserData;
   bool _isLoading = false;
   String? _errorMessage;
+
 
   AuthProvider(this._authRepository) {
     // Chúng ta sẽ không gọi Firebase ngay trong constructor để tránh treo App lúc khởi động
@@ -22,7 +26,6 @@ class AuthProvider extends ChangeNotifier {
     Future.delayed(const Duration(seconds: 1), () {
       try {
         _firebaseAuth.authStateChanges().listen((User? user) async {
-          print('[AUTH] 🔄 Trạng thái Auth thay đổi: ${user?.email ?? 'Chưa đăng nhập'}');
           _user = user;
           
           if (user != null) {
@@ -30,7 +33,6 @@ class AuthProvider extends ChangeNotifier {
             if (_currentUserData == null) {
               final mysqlUser = await _authRepository.getUserByFirebaseUid(user.uid);
               if (mysqlUser != null) {
-                print('[AUTH] ✅ Đã tự động khôi phục dữ liệu MySQL cho: ${mysqlUser['username']}');
                 _currentUserData = mysqlUser;
               }
             }
@@ -39,9 +41,7 @@ class AuthProvider extends ChangeNotifier {
           }
           notifyListeners();
         });
-      } catch (e) {
-        print('⚠️ AuthListener gặp lỗi: $e');
-      }
+      } catch (_) {}
     });
   }
 
@@ -65,86 +65,110 @@ class AuthProvider extends ChangeNotifier {
 
     final nickname = '$firstName $lastName'.trim();
 
-    if (password.length < 6) {
-      _errorMessage = 'Mật khẩu phải có ít nhất 6 ký tự';
+    // 1. Client application-layer validation
+    final passwordValidation = PasswordValidator.validate(password);
+    if (!passwordValidation.isValid) {
+      _errorMessage = passwordValidation.errors.first;
       _isLoading = false;
       notifyListeners();
       return false;
     }
+
     if (nickname.isEmpty) {
-      _errorMessage = 'Vui lòng nhập họ và tên';
+      _errorMessage = AppLocalizations.current.pleaseEnterFullName;
       _isLoading = false;
       notifyListeners();
       return false;
     }
 
     try {
-      debugPrint('---------------------------------------');
-      debugPrint('[AUTH] 🚀 Bắt đầu đăng ký qua Firebase SDK...');
-
-      // BƯỚC 1: Đăng ký qua Firebase SDK
+      // BƯỚC 1: Đăng ký qua Firebase SDK (Source of Truth)
       final Map<String, dynamic> result = await _authRepository.signUpWithSDK(
         email: email,
         password: password,
       );
 
       final String uid = result['localId'];
-      debugPrint('[AUTH] ✅ Firebase UID: $uid');
 
-      // BƯỚC 2: Đồng bộ sang MySQL — nếu fail vẫn cho vào app
-      bool mysqlOk = false;
-      String? mysqlWarning;
+      // BƯỚC 2: Backend registration & final password validation
+      Map<String, dynamic>? mysqlUserData;
       try {
-        debugPrint('[AUTH] 🌐 Đang đồng bộ sang MySQL...');
-        await _authRepository.registerUserToMySQL(
+        mysqlUserData = await _authRepository.registerUserToMySQL(
           uid: uid,
           email: email,
-          username: nickname, // Placeholder; server sẽ sinh username thực từ nickname
+          username: nickname,
           nickname: nickname,
+          password: password,
         );
-        mysqlOk = true;
-        debugPrint('[AUTH] 🎉 Đăng ký hoàn tất!');
-      } catch (mysqlError) {
-        // Firebase đã tạo user thành công, nhưng MySQL thất bại
-        // → Vẫn cho vào app, hiện cảnh báo thay vì block
-        debugPrint('[AUTH] ⚠️ MySQL sync thất bại: $mysqlError');
-        mysqlWarning = 'Tạo tài khoản thành công nhưng server đang bận. '
-            'Một số tính năng có thể bị giới hạn tạm thời.';
+      } on BackendPolicyException catch (e) {
+        // TRƯỜNG HỢP 2: HTTP 400 (Explicit Policy Rejection trước khi ghi DB)
+        // Kích hoạt Safe Rollback xoá Firebase user vừa tạo để tránh tài khoản mồ côi
+        try {
+          await _authRepository.deleteCurrentFirebaseUser();
+        } catch (delError) {
+          // Log phi nhạy cảm: tuyệt đối không log password
+          debugPrint('[AuthRollback] Warning: Could not delete orphan Firebase user ($uid): $delError');
+        }
+        _currentUserData = null;
+        _errorMessage = e.errors.isNotEmpty ? e.errors.join('\n') : e.message;
+        _isLoading = false;
+        notifyListeners();
+        return false;
+      } on EmailConflictException catch (e) {
+        // TRƯỜNG HỢP 2B: HTTP 409 (Email Conflict với tài khoản khác)
+        try {
+          await _authRepository.deleteCurrentFirebaseUser();
+        } catch (delError) {
+          debugPrint('[AuthRollback] Warning: Could not delete orphan Firebase user ($uid): $delError');
+        }
+        _currentUserData = null;
+        _errorMessage = e.message;
+        _isLoading = false;
+        notifyListeners();
+        return false;
+      } on ServerUncertainException {
+        // TRƯỜNG HỢP 3: HTTP 500 / Timeout / Rớt mạng (Uncertain state)
+        // TUYỆT ĐỐI KHÔNG XÓA MÙ QUÁNG TÀI KHOẢN FIREBASE!
+        // Thực hiện RECONCILIATION:
+        final existingUser = await _authRepository.getUserByFirebaseUid(uid);
+        if (existingUser != null) {
+          // 3A: MySQL thực tế đã lưu thành công!
+          mysqlUserData = existingUser;
+        } else {
+          // 3B: Chưa có trong MySQL hoặc server chưa phục hồi
+          // Giữ Firebase an toàn, signOut phiên tạm thời để retry/recover theo cùng firebase_uid
+          await _authRepository.signOut();
+          _currentUserData = null;
+          _errorMessage = AppLocalizations.current.cannotConnectServerCompleteRegistration;
+          _isLoading = false;
+          notifyListeners();
+          return false;
+        }
       }
 
-      // Thiết lập data local dù MySQL fail hay không
-      _currentUserData = {
+      _currentUserData = mysqlUserData ?? {
         'firebase_uid': uid,
         'email': email,
         'nickname': nickname,
-        'username': nickname, // Sẽ bị ghi đè bởi auth listener khi MySQL sync xong
-        'mysql_synced': mysqlOk,
+        'username': nickname,
       };
-
-      if (mysqlWarning != null) {
-        _errorMessage = mysqlWarning; // Dùng như warning, không block login
-      }
 
       _isLoading = false;
       notifyListeners();
-      return true; // ✅ Luôn trả true nếu Firebase ok
+      return true;
 
-    } on Exception catch (e, stackTrace) {
+    } on Exception catch (e) {
       final errorMsg = e.toString();
-      debugPrint('=================================');
-      debugPrint('[AUTH][ERROR] $errorMsg');
-      debugPrint('[AUTH] StackTrace: $stackTrace');
-      debugPrint('=================================');
 
-      // Lỗi này chỉ từ Firebase (email tồn tại, mật khẩu yếu,...)
+      // Mapping lỗi Firebase thân thiện với người dùng
       if (errorMsg.contains('EMAIL_EXISTS')) {
-        _errorMessage = 'Email này đã được sử dụng rồi!';
+        _errorMessage = AppLocalizations.current.emailAlreadyInUse;
       } else if (errorMsg.contains('WEAK_PASSWORD')) {
-        _errorMessage = 'Mật khẩu quá yếu (cần ít nhất 6 ký tự)!';
+        _errorMessage = AppLocalizations.current.weakPassword;
       } else if (errorMsg.contains('INVALID_EMAIL')) {
-        _errorMessage = 'Địa chỉ email không hợp lệ!';
+        _errorMessage = AppLocalizations.current.invalidEmailFormat;
       } else {
-        _errorMessage = 'Lỗi đăng ký: $errorMsg';
+        _errorMessage = '${AppLocalizations.current.failure}: $errorMsg';
       }
     }
 
@@ -152,6 +176,7 @@ class AuthProvider extends ChangeNotifier {
     notifyListeners();
     return false;
   }
+
 
   Future<bool> signIn({
     required String email,
@@ -162,9 +187,6 @@ class AuthProvider extends ChangeNotifier {
     notifyListeners();
 
     try {
-      print('---------------------------------------');
-      print('[AUTH] 🔑 Bắt đầu đăng nhập Firebase SDK...');
-      
       // BƯỚC 1: Đăng nhập Firebase SDK
       final Map<String, dynamic> result = await _authRepository.signInWithSDK(
         email: email,
@@ -172,16 +194,13 @@ class AuthProvider extends ChangeNotifier {
       );
 
       final String uid = result['localId'];
-      print('[AUTH] ✅ Firebase Login thành công. UID: $uid');
 
       // BƯỚC 2: Kiểm tra User trong MySQL
       final mysqlUser = await _authRepository.getUserByFirebaseUid(uid);
       
       if (mysqlUser != null) {
-        debugPrint('[AUTH] ✅ Đã tìm thấy user trong MySQL: ${mysqlUser['username']}');
         _currentUserData = mysqlUser;
       } else {
-        debugPrint('[AUTH] ⚠️ Không tìm thấy user trong MySQL (Có thể chưa đồng bộ)');
         // Fallback: dùng phần trước @ của email thay vì uid xấu
         final emailPrefix = email.split('@').first;
         _currentUserData = {
@@ -198,14 +217,13 @@ class AuthProvider extends ChangeNotifier {
 
     } on Exception catch (e) {
       final errorMsg = e.toString();
-      print('[AUTH] ❌ Lỗi đăng nhập: $errorMsg');
       
       if (errorMsg.contains('INVALID_LOGIN_CREDENTIALS') || errorMsg.contains('INVALID_PASSWORD')) {
-        _errorMessage = 'Email hoặc mật khẩu không chính xác';
+        _errorMessage = AppLocalizations.current.invalidCredentials;
       } else if (errorMsg.contains('USER_NOT_FOUND')) {
-        _errorMessage = 'Tài khoản không tồn tại';
+        _errorMessage = AppLocalizations.current.accountNotFound;
       } else {
-        _errorMessage = 'Lỗi: $errorMsg';
+        _errorMessage = '${AppLocalizations.current.failure}: $errorMsg';
       }
     }
 
@@ -225,9 +243,6 @@ class AuthProvider extends ChangeNotifier {
       final String uid = result['localId'];
       final String email = result['email'] ?? '';
       final String displayName = result['displayName'] ?? email.split('@').first;
-      final bool isNewUser = result['isNewUser'] ?? false;
-
-      debugPrint('[AUTH] Google UID: $uid, isNew: $isNewUser, name: $displayName');
 
       // Kiểm tra user trong MySQL
       final mysqlUser = await _authRepository.getUserByFirebaseUid(uid);
@@ -235,7 +250,6 @@ class AuthProvider extends ChangeNotifier {
       if (mysqlUser != null) {
         // User đã tồn tại → load data MySQL
         _currentUserData = mysqlUser;
-        debugPrint('[AUTH] ✅ Google user đã có trong MySQL');
       } else {
         // User mới → đăng ký vào MySQL với displayName làm nickname
         try {
@@ -253,8 +267,7 @@ class AuthProvider extends ChangeNotifier {
             'nickname': displayName,
             'username': displayName.replaceAll(' ', '').toLowerCase(),
           };
-        } catch (regError) {
-          debugPrint('[AUTH] ⚠️ MySQL sync thất bại: $regError');
+        } catch (_) {
           _currentUserData = {
             'firebase_uid': uid,
             'email': email,
@@ -270,7 +283,6 @@ class AuthProvider extends ChangeNotifier {
 
     } on Exception catch (e) {
       _errorMessage = e.toString().replaceAll('Exception: ', '');
-      debugPrint('[AUTH] ❌ Google Sign-In lỗi: $_errorMessage');
       _isLoading = false;
       notifyListeners();
       return false;
@@ -294,10 +306,144 @@ class AuthProvider extends ChangeNotifier {
       notifyListeners();
       return true;
     } catch (e) {
-      _errorMessage = 'Lỗi: $e';
+      final errStr = e.toString().toUpperCase();
+      if (errStr.contains('EMAIL_NOT_FOUND') || errStr.contains('USER_NOT_FOUND')) {
+        _errorMessage = AppLocalizations.current.accountNotFoundForEmail;
+      } else if (errStr.contains('OAUTH_ACCOUNT') || errStr.contains('OPERATION_NOT_ALLOWED')) {
+        _errorMessage = AppLocalizations.current.googleAccountSignInPrompt;
+      } else if (errStr.contains('INVALID_EMAIL')) {
+        _errorMessage = AppLocalizations.current.invalidEmailFormat;
+      } else if (errStr.contains('TOO_MANY_REQUESTS')) {
+        _errorMessage = AppLocalizations.current.tooManyRequests;
+      } else {
+        _errorMessage = e.toString().replaceAll('Exception: ', '');
+      }
+      _isLoading = false;
+      notifyListeners();
+      return false;
+    }
+  }
+
+  /// Gửi mã xác thực OTP 6 số qua email (100% trong App)
+  Future<bool> sendForgotPasswordOtp(String email) async {
+    _isLoading = true;
+    _errorMessage = null;
+    notifyListeners();
+    try {
+      await _authRepository.sendForgotPasswordOtp(email);
+      _isLoading = false;
+      notifyListeners();
+      return true;
+    } catch (e) {
+      _errorMessage = e.toString().replaceAll('Exception: ', '');
+      _isLoading = false;
+      notifyListeners();
+      return false;
+    }
+  }
+
+  /// Xác thực mã OTP 6 số từ người dùng
+  Future<bool> verifyForgotPasswordOtp(String email, String otp) async {
+    _isLoading = true;
+    _errorMessage = null;
+    notifyListeners();
+    try {
+      await _authRepository.verifyForgotPasswordOtp(email, otp);
+      _isLoading = false;
+      notifyListeners();
+      return true;
+    } catch (e) {
+      _errorMessage = e.toString().replaceAll('Exception: ', '');
+      _isLoading = false;
+      notifyListeners();
+      return false;
+    }
+  }
+
+  /// Đặt lại mật khẩu mới bằng OTP kèm kiểm tra 7 quy tắc bảo mật
+  Future<bool> resetPasswordWithOtp({
+    required String email,
+    required String otp,
+    required String newPassword,
+  }) async {
+    _isLoading = true;
+    _errorMessage = null;
+    notifyListeners();
+    try {
+      // 1. Kiểm tra 7 quy tắc bảo mật
+      final validation = PasswordValidator.validate(newPassword);
+      if (!validation.isValid) {
+        _errorMessage = validation.errors.first;
+        _isLoading = false;
+        notifyListeners();
+        return false;
+      }
+
+      await _authRepository.resetPasswordWithOtp(
+        email: email,
+        otp: otp,
+        newPassword: newPassword,
+      );
+      _isLoading = false;
+      notifyListeners();
+      return true;
+    } catch (e) {
+      _errorMessage = e.toString().replaceAll('Exception: ', '');
+      _isLoading = false;
+      notifyListeners();
+      return false;
+    }
+  }
+
+  /// Đổi mật khẩu cho người dùng đang đăng nhập (in-app qua Firebase)
+  Future<bool> changePassword({
+    required String currentPassword,
+    required String newPassword,
+  }) async {
+    _isLoading = true;
+    _errorMessage = null;
+    notifyListeners();
+    try {
+      if (currentPassword == newPassword) {
+        _errorMessage = AppLocalizations.current.passwordCannotMatchOld;
+        _isLoading = false;
+        notifyListeners();
+        return false;
+      }
+
+      // 1. Kiểm tra 7 quy tắc bảo mật
+      final validation = PasswordValidator.validate(newPassword);
+      if (!validation.isValid) {
+        _errorMessage = validation.errors.first;
+        _isLoading = false;
+        notifyListeners();
+        return false;
+      }
+
+      await _authRepository.changePasswordLoggedIn(
+        currentPassword: currentPassword,
+        newPassword: newPassword,
+      );
+      _isLoading = false;
+      notifyListeners();
+      return true;
+    } catch (e) {
+      final errStr = e.toString().toLowerCase();
+      if (errStr.contains('mật khẩu hiện tại') || errStr.contains('wrong-password') || errStr.contains('invalid_login_credentials')) {
+        _errorMessage = AppLocalizations.current.currentPasswordIncorrect;
+      } else if (errStr.contains('hết hạn') || errStr.contains('requires-recent-login')) {
+        _errorMessage = AppLocalizations.current.sessionExpiredReLogin;
+      } else if (errStr.contains('google')) {
+        _errorMessage = AppLocalizations.current.googleAccountNoPassword;
+      } else if (errStr.contains('không đủ mạnh') || errStr.contains('weak-password')) {
+        _errorMessage = AppLocalizations.current.weakPassword;
+      } else {
+        _errorMessage = AppLocalizations.current.changePasswordFailure;
+      }
       _isLoading = false;
       notifyListeners();
       return false;
     }
   }
 }
+

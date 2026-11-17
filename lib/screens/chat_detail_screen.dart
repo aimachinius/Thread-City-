@@ -1,3 +1,4 @@
+import 'dart:convert';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import '../models/conversation_model.dart';
@@ -12,7 +13,10 @@ import '../widgets/custom_cached_image.dart';
 import 'package:image_picker/image_picker.dart';
 import '../services/image_upload_service.dart';
 import '../widgets/typing_indicator.dart';
+import '../widgets/bouncy_tap.dart';
 import 'post_detail_screen.dart';
+import 'profile_screen.dart';
+import '../l10n/app_localizations.dart';
 
 class ChatDetailScreen extends StatefulWidget {
   final ConversationModel conversation;
@@ -125,9 +129,9 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> {
 
     if (isInitiator) {
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('Bạn chỉ có thể gửi 1 tin nhắn khi đối phương chưa phản hồi'),
-          duration: Duration(seconds: 2),
+        SnackBar(
+          content: Text(context.l10n.chatSingleMessageLimit),
+          duration: const Duration(seconds: 2),
         ),
       );
       return;
@@ -161,7 +165,7 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> {
 
     if (!success) {
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Không thể gửi tin nhắn')),
+        SnackBar(content: Text(context.l10n.failedToSendMessage)),
       );
     }
   }
@@ -180,7 +184,7 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> {
             children: [
               ListTile(
                 leading: const Icon(Icons.image_outlined, color: Colors.black),
-                title: const Text('Gửi ảnh', style: TextStyle(fontWeight: FontWeight.w600)),
+                title: Text(context.l10n.sendPhoto, style: const TextStyle(fontWeight: FontWeight.w600)),
                 onTap: () {
                   Navigator.pop(context);
                   _pickAndSendMedia(true);
@@ -188,7 +192,7 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> {
               ),
               ListTile(
                 leading: const Icon(Icons.video_library_outlined, color: Colors.black),
-                title: const Text('Gửi video', style: TextStyle(fontWeight: FontWeight.w600)),
+                title: Text(context.l10n.sendVideo, style: const TextStyle(fontWeight: FontWeight.w600)),
                 onTap: () {
                   Navigator.pop(context);
                   _pickAndSendMedia(false);
@@ -259,12 +263,11 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> {
       } else {
         if (mounted) {
           ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(content: Text('Không thể tải file lên')),
+            SnackBar(content: Text(context.l10n.failedToUploadFile)),
           );
         }
       }
-    } catch (e) {
-      debugPrint('Lỗi chọn media: $e');
+    } catch (_) {
     } finally {
       if (mounted) {
         setState(() {
@@ -361,7 +364,7 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> {
                         builder: (context, provider, _) {
                           final isOnline = _conversation.partner.isOnline;
                           return Text(
-                            isOnline ? 'Đang hoạt động' : 'Không hoạt động',
+                            isOnline ? context.l10n.chatStatusActive : context.l10n.chatStatusOffline,
                             style: TextStyle(
                               fontSize: 11,
                               color: isOnline ? AppColors.online : AppColors.textTertiary,
@@ -405,8 +408,8 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> {
                         messages.any((m) => m.senderId == currentUserId) ||
                         _hasPendingRequestMessageSent);
                 final bannerText = isPendingSender
-                    ? 'Bạn đã gửi yêu cầu. Bạn chỉ có thể gửi 1 tin nhắn trước khi đối phương chấp nhận.'
-                    : 'Yêu cầu nhắn tin đang chờ chấp nhận. Bạn chưa thể gửi thêm tin nhắn.';
+                    ? context.l10n.chatSingleMessagePendingSender
+                    : context.l10n.chatRequestPending;
 
                 return Container(
                   width: double.infinity,
@@ -457,10 +460,10 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> {
                     }
 
                     if (messages.isEmpty) {
-                      return const Center(
+                      return Center(
                         child: Text(
-                          'Hãy bắt đầu cuộc trò chuyện',
-                          style: TextStyle(
+                          context.l10n.startConversationPrompt,
+                          style: const TextStyle(
                             color: AppColors.textSecondary,
                             fontSize: 14,
                           ),
@@ -484,7 +487,22 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> {
                             context.read<AuthProvider>().currentUserData?['id'];
 
 
-                        // Bubble thông thường (TEXT, IMAGE, VIDEO)
+                        // Check for profile card JSON first
+                        final profileCard = _tryParseProfileCard(message.content);
+                        if (profileCard != null && !message.isDeleted) {
+                          return Padding(
+                            padding: const EdgeInsets.only(bottom: 12),
+                            child: Align(
+                              alignment: isOwn ? Alignment.centerRight : Alignment.centerLeft,
+                              child: GestureDetector(
+                                onLongPress: isOwn ? () => _showMessageMenu(message) : null,
+                                child: _buildProfileCard(profileCard, isOwn),
+                              ),
+                            ),
+                          );
+                        }
+
+                        // Normal bubble (TEXT, IMAGE, VIDEO, POST_SHARE)
                         return Padding(
                           padding: const EdgeInsets.only(bottom: 12),
                           child: Align(
@@ -547,7 +565,7 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> {
                                           ),
                                           const SizedBox(width: 6),
                                           Text(
-                                            'Tin nhắn đã được thu hồi',
+                                            context.l10n.messageRecalled,
                                             style: TextStyle(
                                               color: isOwn ? Colors.white60 : AppColors.textTertiary,
                                               fontSize: 13,
@@ -604,7 +622,7 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> {
                                           borderRadius: BorderRadius.circular(12),
                                         ),
                                         child: Text(
-                                          'Bài viết không còn tồn tại',
+                                          context.l10n.postNoLongerExists,
                                           style: TextStyle(
                                             color: isOwn ? Colors.white60 : AppColors.textSecondary,
                                             fontSize: 13,
@@ -705,7 +723,7 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> {
                               navigator.pop();
                             }
                           },
-                          child: const Text('Từ chối'),
+                          child: Text(context.l10n.btnDecline),
                         ),
                       ),
                       const SizedBox(width: 10),
@@ -726,7 +744,7 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> {
                               await provider.fetchMessages(_conversation.id);
                             }
                           },
-                          child: const Text('Chấp nhận'),
+                          child: Text(context.l10n.btnAccept),
                         ),
                       ),
                     ],
@@ -743,14 +761,14 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> {
                   width: double.infinity,
                   padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
                   color: AppColors.surface,
-                  child: const Row(
+                  child: Row(
                     children: [
-                      Icon(Icons.info_outline, size: 18, color: AppColors.textSecondary),
-                      SizedBox(width: 8),
+                      const Icon(Icons.info_outline, size: 18, color: AppColors.textSecondary),
+                      const SizedBox(width: 8),
                       Expanded(
                         child: Text(
-                          'Bạn đã gửi 1 tin nhắn. Cuộc trò chuyện sẽ được mở khi đối phương phản hồi.',
-                          style: TextStyle(
+                          context.l10n.chatPendingSenderNotice,
+                          style: const TextStyle(
                             fontSize: 12.5,
                             color: AppColors.textSecondary,
                             fontWeight: FontWeight.w500,
@@ -788,23 +806,23 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> {
 
         if (!isPending) {
           canSend = true;
-          hintText = 'Nhắn tin...';
+          hintText = context.l10n.typeMessagePlaceholder;
         } else {
           if (firstSenderId == null) {
             if (_hasPendingRequestMessageSent) {
               canSend = false;
-              hintText = 'Chờ đối phương phản hồi...';
+              hintText = context.l10n.waitingForResponse;
             } else {
               canSend = true;
-              hintText = 'Gửi tin nhắn...';
+              hintText = context.l10n.typeMessagePlaceholder;
             }
           } else if (firstSenderId == currentUserId) {
             canSend = false;
-            hintText = 'Chờ đối phương phản hồi...';
+            hintText = context.l10n.waitingForResponse;
           } else {
             // Recipient can reply to accept conversation!
             canSend = true;
-            hintText = 'Nhắn lại để mở cuộc trò chuyện...';
+            hintText = context.l10n.replyToAcceptPrompt;
           }
         }
 
@@ -908,21 +926,169 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> {
     );
   }
 
+  /// Try to parse the profile card JSON from message content.
+  /// Returns the parsed Map if content is a valid profile card, null otherwise.
+  Map<String, dynamic>? _tryParseProfileCard(String? content) {
+    if (content == null || content.isEmpty) return null;
+    if (!content.startsWith('{"_type":"profile_card"')) return null;
+    try {
+      final map = jsonDecode(content) as Map<String, dynamic>;
+      if (map['_type'] == 'profile_card' &&
+          map['username'] != null &&
+          (map['username'] as String).isNotEmpty) {
+        return map;
+      }
+    } catch (_) {}
+    return null;
+  }
+
+  /// Renders a tappable profile card for a message whose content encodes a profile.
+  Widget _buildProfileCard(Map<String, dynamic> card, bool isOwn) {
+    final username = card['username'] as String? ?? '';
+    final nickname = card['nickname'] as String? ?? username;
+    final avatarUrl = card['avatarUrl'] as String?;
+    final uid = card['uid'] as String?;
+
+    return BouncyTap(
+      onTap: () {
+        Navigator.of(context).push(
+          MaterialPageRoute(
+            builder: (_) => ProfileScreen(
+              currentUsername: username,
+              currentNickname: nickname,
+              viewingUserId: uid,
+            ),
+          ),
+        );
+      },
+      child: Container(
+        constraints: const BoxConstraints(maxWidth: 260),
+        decoration: BoxDecoration(
+          color: isOwn ? Colors.white.withOpacity(0.12) : AppColors.surface,
+          border: Border.all(
+            color: isOwn ? Colors.white24 : AppColors.border,
+            width: 0.5,
+          ),
+          borderRadius: BorderRadius.circular(16),
+        ),
+        child: Padding(
+          padding: const EdgeInsets.all(12),
+          child: Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              // Avatar
+              ClipRRect(
+                borderRadius: BorderRadius.circular(14),
+                child: avatarUrl != null && avatarUrl.isNotEmpty
+                    ? CustomCachedImage(
+                        imageUrl: avatarUrl,
+                        width: 44,
+                        height: 44,
+                        fit: BoxFit.cover,
+                        borderRadius: BorderRadius.circular(14),
+                      )
+                    : Container(
+                        width: 44,
+                        height: 44,
+                        decoration: BoxDecoration(
+                          gradient: AppColors.coralGradient,
+                          borderRadius: BorderRadius.circular(14),
+                        ),
+                        child: Center(
+                          child: Text(
+                            (nickname.isNotEmpty ? nickname[0] : '?').toUpperCase(),
+                            style: const TextStyle(
+                              color: Colors.white,
+                              fontWeight: FontWeight.w700,
+                              fontSize: 18,
+                            ),
+                          ),
+                        ),
+                      ),
+              ),
+              const SizedBox(width: 10),
+              // Info
+              Flexible(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Text(
+                      nickname,
+                      style: TextStyle(
+                        fontSize: 14,
+                        fontWeight: FontWeight.w700,
+                        color: isOwn ? Colors.white : AppColors.textPrimary,
+                      ),
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                    ),
+                    Text(
+                      '@$username',
+                      style: TextStyle(
+                        fontSize: 12,
+                        color: isOwn ? Colors.white60 : AppColors.textSecondary,
+                      ),
+                    ),
+                    const SizedBox(height: 4),
+                    Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Icon(
+                          Icons.person_outline_rounded,
+                          size: 12,
+                          color: isOwn ? Colors.white54 : AppColors.textTertiary,
+                        ),
+                        const SizedBox(width: 4),
+                        Text(
+                          context.l10n.viewProfileMenu,
+                          style: TextStyle(
+                            fontSize: 11,
+                            color: isOwn ? Colors.white54 : AppColors.textTertiary,
+                            fontStyle: FontStyle.italic,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ],
+                ),
+              ),
+              const SizedBox(width: 6),
+              Icon(
+                Icons.arrow_forward_ios_rounded,
+                size: 13,
+                color: isOwn ? Colors.white38 : AppColors.textTertiary,
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
   Widget _buildSharedPost(PostModel post, bool isOwn) {
     final hasImage = post.media.isNotEmpty &&
         post.media.first.mediaType == MediaType.image;
 
-    return Container(
-      constraints: const BoxConstraints(maxWidth: 260),
-      decoration: BoxDecoration(
-        color: AppColors.surface,
-        border: Border.all(color: AppColors.border, width: 0.5),
-        borderRadius: BorderRadius.circular(14),
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        mainAxisSize: MainAxisSize.min,
-        children: [
+    return BouncyTap(
+      onTap: () {
+        Navigator.of(context).push(
+          MaterialPageRoute(
+            builder: (_) => PostDetailScreen(post: post),
+          ),
+        );
+      },
+      child: Container(
+        constraints: const BoxConstraints(maxWidth: 260),
+        decoration: BoxDecoration(
+          color: AppColors.surface,
+          border: Border.all(color: AppColors.border, width: 0.5),
+          borderRadius: BorderRadius.circular(14),
+        ),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          mainAxisSize: MainAxisSize.min,
+          children: [
             // Header: avatar + tên tác giả
             Padding(
               padding: const EdgeInsets.fromLTRB(10, 10, 10, 6),
@@ -942,7 +1108,7 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> {
                   const SizedBox(width: 8),
                   Expanded(
                     child: Text(
-                      post.author?.nickname ?? post.author?.username ?? 'Người dùng',
+                      post.author?.nickname ?? post.author?.username ?? context.l10n.userFallback,
                       style: const TextStyle(
                         fontSize: 13,
                         fontWeight: FontWeight.w600,
@@ -982,8 +1148,8 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> {
             Padding(
               padding: const EdgeInsets.fromLTRB(10, 4, 10, 10),
               child: Text(
-                'Nhấn để xem bài viết',
-                style: TextStyle(
+                context.l10n.tapToViewPost,
+                style: const TextStyle(
                   fontSize: 11,
                   color: AppColors.textSecondary,
                   fontStyle: FontStyle.italic,
@@ -992,8 +1158,10 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> {
             ),
           ],
         ),
+      ),
     );
   }
+
 
   void _showMessageMenu(dynamic message) {
     showModalBottomSheet(
@@ -1012,7 +1180,7 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> {
             const SizedBox(height: 12),
             ListTile(
               leading: const Icon(Icons.delete_outline, size: 20),
-              title: const Text('Thu hồi cho mọi người'),
+              title: Text(context.l10n.actionRecall),
               onTap: () {
                 Navigator.pop(context);
                 context.read<MessageProvider>().deleteMessage(message.id);
@@ -1021,7 +1189,7 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> {
             const Divider(height: 0.5, indent: 56),
             ListTile(
               leading: const Icon(Icons.visibility_off_outlined, size: 20),
-              title: const Text('Xóa phía tôi'),
+              title: Text(context.l10n.deleteForMe),
               onTap: () {
                 Navigator.pop(context);
                 context.read<MessageProvider>().hideMessageForMe(message.id);
@@ -1050,7 +1218,7 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> {
             const SizedBox(height: 12),
             ListTile(
               leading: const Icon(Icons.block_outlined, size: 20),
-              title: const Text('Chặn'),
+              title: Text(context.l10n.blockUser),
               onTap: () {
                 Navigator.pop(context);
                 context
@@ -1062,7 +1230,7 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> {
             const Divider(height: 0.5, indent: 56),
             ListTile(
               leading: const Icon(Icons.delete_outline, size: 20),
-              title: const Text('Xóa cuộc trò chuyện'),
+              title: Text(context.l10n.deleteConversation),
               onTap: () {
                 Navigator.pop(context);
               },
@@ -1076,11 +1244,11 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> {
   String _statusText(MessageStatus status) {
     switch (status) {
       case MessageStatus.SENT:
-        return 'Đã gửi';
+        return context.l10n.statusSent;
       case MessageStatus.DELIVERED:
-        return 'Đã nhận';
+        return context.l10n.statusDelivered;
       case MessageStatus.READ:
-        return 'Đã xem';
+        return context.l10n.statusRead;
     }
   }
 
@@ -1088,10 +1256,10 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> {
     final now = DateTime.now();
     final diff = now.difference(dateTime);
 
-    if (diff.inMinutes < 1) return 'Vừa xong';
-    if (diff.inHours < 1) return '${diff.inMinutes} phút';
-    if (diff.inDays < 1) return '${diff.inHours} giờ';
-    if (diff.inDays < 7) return '${diff.inDays} ngày';
+    if (diff.inMinutes < 1) return context.l10n.timeJustNow;
+    if (diff.inHours < 1) return context.l10n.timeMinutes(diff.inMinutes);
+    if (diff.inDays < 1) return context.l10n.timeHours(diff.inHours);
+    if (diff.inDays < 7) return context.l10n.timeDays(diff.inDays);
     return '${dateTime.day}/${dateTime.month}';
   }
 }

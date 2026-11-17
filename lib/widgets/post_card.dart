@@ -18,6 +18,8 @@ import 'share_post_sheet.dart';
 import 'custom_cached_image.dart';
 import 'bouncy_tap.dart';
 import 'heart_pop_button.dart';
+import 'post_options_sheet.dart';
+import '../l10n/app_localizations.dart';
 
 class PostCard extends StatefulWidget {
   const PostCard({
@@ -25,11 +27,13 @@ class PostCard extends StatefulWidget {
     required this.post,
     this.showThreadLine = false,
     this.parentProfileUserId,
+    this.onDeleted,
   });
 
   final PostModel post;
   final bool showThreadLine;
   final String? parentProfileUserId;
+  final VoidCallback? onDeleted;
 
   @override
   State<PostCard> createState() => _PostCardState();
@@ -43,7 +47,6 @@ class _PostCardState extends State<PostCard>
   late bool isReposted;
   late int repostCount;
   late AnimationController _likeAnimCtrl;
-  late Animation<double> _likeScale;
 
   @override
   void initState() {
@@ -58,10 +61,6 @@ class _PostCardState extends State<PostCard>
       vsync: this,
       duration: const Duration(milliseconds: 200),
     );
-    _likeScale = TweenSequence<double>([
-      TweenSequenceItem(tween: Tween(begin: 1.0, end: 1.4), weight: 50),
-      TweenSequenceItem(tween: Tween(begin: 1.4, end: 1.0), weight: 50),
-    ]).animate(CurvedAnimation(parent: _likeAnimCtrl, curve: Curves.easeOut));
   }
 
   @override
@@ -126,9 +125,9 @@ class _PostCardState extends State<PostCard>
           likeCount = widget.post.likeCount;
         });
         ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text('Không thể thực hiện. Kiểm tra kết nối mạng.'),
-            duration: Duration(seconds: 2),
+          SnackBar(
+            content: Text(context.l10n.errorOccurred),
+            duration: const Duration(seconds: 2),
           ),
         );
       }
@@ -168,9 +167,9 @@ class _PostCardState extends State<PostCard>
           repostCount = widget.post.repostCount;
         });
         ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text('Không thể đăng lại. Kiểm tra kết nối mạng.'),
-            duration: Duration(seconds: 2),
+          SnackBar(
+            content: Text(context.l10n.errorOccurred),
+            duration: const Duration(seconds: 2),
           ),
         );
       }
@@ -274,7 +273,7 @@ class _PostCardState extends State<PostCard>
                 Padding(
                   padding: const EdgeInsets.symmetric(horizontal: 24),
                   child: Text(
-                    'Theo dõi @${author.username}?',
+                    context.l10n.followUserConfirmTitle(author.username),
                     style: AppTypography.headlineSmall.copyWith(
                       color: AppColors.textPrimary,
                       fontWeight: FontWeight.w800,
@@ -286,7 +285,7 @@ class _PostCardState extends State<PostCard>
                 Padding(
                   padding: const EdgeInsets.symmetric(horizontal: 28),
                   child: Text(
-                    'Bạn sẽ thấy các bài viết của @${author.username} xuất hiện trên bảng tin của mình.',
+                    context.l10n.followUserConfirmMessage(author.username),
                     style: AppTypography.bodySmall.copyWith(
                       color: AppColors.textSecondary,
                       height: 1.5,
@@ -306,7 +305,7 @@ class _PostCardState extends State<PostCard>
                           height: 50,
                           alignment: Alignment.center,
                           child: Text(
-                            'Hủy',
+                            context.l10n.cancel,
                             style: AppTypography.titleSmall.copyWith(
                               color: AppColors.textSecondary,
                             ),
@@ -329,7 +328,7 @@ class _PostCardState extends State<PostCard>
                             shaderCallback: (bounds) =>
                                 AppColors.accentGradient.createShader(bounds),
                             child: Text(
-                              'Theo dõi',
+                              context.l10n.btnFollow,
                               style: AppTypography.titleSmall.copyWith(
                                 color: Colors.white,
                                 fontWeight: FontWeight.w800,
@@ -381,7 +380,7 @@ class _PostCardState extends State<PostCard>
                         size: 14, color: AppColors.textTertiary),
                     const SizedBox(width: 6),
                     Text(
-                      '${FormatUtils.formatCount(post.repostCount)} lượt đăng lại',
+                      '${FormatUtils.formatCount(post.repostCount)} ${context.l10n.tabReposts}',
                       style: AppTypography.labelSmall.copyWith(
                         color: AppColors.textTertiary,
                       ),
@@ -491,7 +490,7 @@ class _PostCardState extends State<PostCard>
                                 onTap: () =>
                                     _navigateToProfile(context, author),
                                 child: Text(
-                                  author?.nickname ?? author?.username ?? 'Anonymous',
+                                  author?.nickname ?? author?.username ?? context.l10n.anonymousAuthor,
                                   style: AppTypography.titleMedium.copyWith(
                                     color: AppColors.textPrimary,
                                     fontWeight: FontWeight.w700,
@@ -505,11 +504,21 @@ class _PostCardState extends State<PostCard>
                                 color: AppColors.textTertiary,
                               ),
                             ),
-                            const SizedBox(width: 6),
-                            const Icon(
-                              Icons.more_horiz,
-                              size: 18,
-                              color: AppColors.iconSecondary,
+                            const SizedBox(width: 4),
+                            BouncyTap(
+                              onTap: () => showPostOptionsSheet(
+                                context,
+                                post: post,
+                                onDeleted: widget.onDeleted,
+                              ),
+                              child: const Padding(
+                                padding: EdgeInsets.all(4.0),
+                                child: Icon(
+                                  Icons.more_horiz,
+                                  size: 18,
+                                  color: AppColors.iconSecondary,
+                                ),
+                              ),
                             ),
                           ],
                         ),
@@ -704,11 +713,11 @@ class _PostCardState extends State<PostCard>
   String _formatDateTime(DateTime dt) {
     final now = DateTime.now();
     final diff = now.difference(dt);
-    if (diff.inMinutes < 1) return 'Vừa xong';
-    if (diff.inMinutes < 60) return '${diff.inMinutes}m';
-    if (diff.inHours < 24) return '${diff.inHours}h';
-    if (diff.inDays < 7) return '${diff.inDays}d';
-    return '${diff.inDays ~/ 7}w';
+    if (diff.inMinutes < 1) return context.l10n.timeJustNow;
+    if (diff.inMinutes < 60) return context.l10n.timeMinutes(diff.inMinutes);
+    if (diff.inHours < 24) return context.l10n.timeHours(diff.inHours);
+    if (diff.inDays < 7) return context.l10n.timeDays(diff.inDays);
+    return context.l10n.timeWeeks(diff.inDays ~/ 7);
   }
 
   Widget _buildRichContent(String content) {
@@ -787,75 +796,6 @@ class _PostCardState extends State<PostCard>
                 },
               ),
             ),
-    );
-  }
-}
-
-// ─── Action Button ────────────────────────────────────────────────────────────
-
-class _ActionButton extends StatefulWidget {
-  const _ActionButton({
-    required this.icon,
-    this.text,
-    this.onTap,
-    this.color = AppColors.iconSecondary,
-  });
-
-  final IconData icon;
-  final String? text;
-  final VoidCallback? onTap;
-  final Color color;
-
-  @override
-  State<_ActionButton> createState() => _ActionButtonState();
-}
-
-class _ActionButtonState extends State<_ActionButton> {
-  bool _pressed = false;
-
-  @override
-  Widget build(BuildContext context) {
-    final isDisabled = widget.onTap == null;
-
-    return GestureDetector(
-      onTapDown: isDisabled ? null : (_) => setState(() => _pressed = true),
-      onTapUp: isDisabled
-          ? null
-          : (_) {
-              setState(() => _pressed = false);
-              widget.onTap?.call();
-            },
-      onTapCancel: () => setState(() => _pressed = false),
-      onTap: widget.onTap,
-      behavior: HitTestBehavior.opaque,
-      child: AnimatedScale(
-        scale: _pressed ? 0.88 : 1.0,
-        duration: const Duration(milliseconds: 100),
-        child: Padding(
-          padding: const EdgeInsets.symmetric(vertical: 8, horizontal: 6),
-          child: Row(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              Icon(
-                widget.icon,
-                size: 22,
-                color: isDisabled ? AppColors.textTertiary : widget.color,
-              ),
-              if (widget.text != null && widget.text != '0') ...[
-                const SizedBox(width: 5),
-                Text(
-                  widget.text!,
-                  style: AppTypography.labelMedium.copyWith(
-                    color: isDisabled
-                        ? AppColors.textTertiary
-                        : AppColors.textSecondary,
-                  ),
-                ),
-              ],
-            ],
-          ),
-        ),
-      ),
     );
   }
 }

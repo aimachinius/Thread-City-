@@ -9,6 +9,7 @@ import '../widgets/write_sheet.dart';
 import '../widgets/custom_cached_image.dart';
 import '../widgets/video_player_widget.dart';
 import '../widgets/bouncy_tap.dart';
+import '../l10n/app_localizations.dart';
 
 class HomeScreen extends StatefulWidget {
   final bool isActive;
@@ -123,7 +124,7 @@ class HomeScreenState extends State<HomeScreen>
                       borderRadius: BorderRadius.circular(12),
                       boxShadow: [
                         BoxShadow(
-                          color: AppColors.coral.withOpacity(0.38),
+                          color: AppColors.coral.withValues(alpha: 0.38),
                           blurRadius: 10,
                           offset: const Offset(0, 3),
                         ),
@@ -145,7 +146,7 @@ class HomeScreenState extends State<HomeScreen>
                               color: _activeTabIndex == 0 ? Colors.white : AppColors.inkSoft,
                               fontWeight: FontWeight.w700,
                             ),
-                            child: const Text('Dành cho bạn'),
+                            child: Text(context.l10n.tabForYou),
                           ),
                         ),
                       ),
@@ -161,7 +162,7 @@ class HomeScreenState extends State<HomeScreen>
                               color: _activeTabIndex == 1 ? Colors.white : AppColors.inkSoft,
                               fontWeight: FontWeight.w700,
                             ),
-                            child: const Text('Đang theo dõi'),
+                            child: Text(context.l10n.tabFollowing),
                           ),
                         ),
                       ),
@@ -263,10 +264,10 @@ class _FeedViewState extends State<_FeedView>
           if (errorMessage != null && posts.isEmpty) {
             return _EmptyState(
               icon: Icons.wifi_off_rounded,
-              title: 'Không tải được',
+              title: context.l10n.errorOccurred,
               subtitle: errorMessage,
               action: _PillButton(
-                label: 'Thử lại',
+                label: context.l10n.tryAgain,
                 icon: Icons.refresh_rounded,
                 onTap: isFollowing ? provider.fetchFollowingFeed : provider.fetchFeed,
               ),
@@ -297,17 +298,13 @@ class _FeedViewState extends State<_FeedView>
                 if (isEmpty) {
                   return Padding(
                     padding: const EdgeInsets.only(top: 80),
-                    child: isFollowing
-                        ? const _EmptyState(
-                            icon: Icons.person_add_outlined,
-                            title: 'Chưa có bài viết',
-                            subtitle: 'Theo dõi mọi người để xem bài viết của họ tại đây',
-                          )
-                        : const _EmptyState(
-                            icon: Icons.chat_bubble_outline_rounded,
-                            title: 'Chưa có gì ở đây',
-                            subtitle: 'Hãy khám phá và theo dõi những người thú vị',
-                          ),
+                    child: _EmptyState(
+                      icon: isFollowing
+                          ? Icons.person_add_outlined
+                          : Icons.chat_bubble_outline_rounded,
+                      title: context.l10n.emptyFeedTitle,
+                      subtitle: context.l10n.emptyFeedSub,
+                    ),
                   );
                 }
 
@@ -498,7 +495,7 @@ class _TopComposeBar extends StatelessWidget {
               const SizedBox(width: 12),
               Expanded(
                 child: Text(
-                  'Có gì mới?',
+                  context.l10n.whatsNewPlaceholder,
                   style: AppTypography.bodyMedium.copyWith(
                     color: AppColors.inkSoft,
                   ),
@@ -511,7 +508,7 @@ class _TopComposeBar extends StatelessWidget {
                   borderRadius: BorderRadius.circular(12),
                 ),
                 child: Text(
-                  'Đăng',
+                  context.l10n.postChip,
                   style: AppTypography.titleSmall.copyWith(
                     color: AppColors.coralDeep,
                     fontWeight: FontWeight.w800,

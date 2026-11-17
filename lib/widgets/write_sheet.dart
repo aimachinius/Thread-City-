@@ -12,6 +12,7 @@ import 'bouncy_tap.dart';
 import 'hashtag_text_controller.dart';
 import '../services/image_upload_service.dart';
 import 'custom_cached_image.dart';
+import '../l10n/app_localizations.dart';
 
 class WriteSheet extends StatefulWidget {
   const WriteSheet({super.key, required this.currentUsername});
@@ -40,7 +41,7 @@ class _WriteSheetState extends State<WriteSheet> {
   final ImagePicker _picker = ImagePicker();
   final FocusNode _focusNode = FocusNode();
 
-  List<Map<String, dynamic>> _selectedMedia = [];
+  final List<Map<String, dynamic>> _selectedMedia = [];
   bool _isUploadingMedia = false;
 
   @override
@@ -63,6 +64,7 @@ class _WriteSheetState extends State<WriteSheet> {
   }
 
   void _showMediaPicker() {
+    final l10n = context.l10n;
     showModalBottomSheet(
       context: context,
       backgroundColor: Colors.white,
@@ -76,7 +78,7 @@ class _WriteSheetState extends State<WriteSheet> {
             children: [
               ListTile(
                 leading: const Icon(Icons.image_outlined, color: Colors.black),
-                title: const Text('Chọn ảnh từ thư viện', style: TextStyle(fontWeight: FontWeight.w600)),
+                title: Text(l10n.pickImageGallery, style: const TextStyle(fontWeight: FontWeight.w600)),
                 onTap: () {
                   Navigator.pop(context);
                   _pickImages();
@@ -84,7 +86,7 @@ class _WriteSheetState extends State<WriteSheet> {
               ),
               ListTile(
                 leading: const Icon(Icons.video_library_outlined, color: Colors.black),
-                title: const Text('Chọn video từ thư viện', style: TextStyle(fontWeight: FontWeight.w600)),
+                title: Text(l10n.pickVideoGallery, style: const TextStyle(fontWeight: FontWeight.w600)),
                 onTap: () {
                   Navigator.pop(context);
                   _pickVideo();
@@ -111,9 +113,7 @@ class _WriteSheetState extends State<WriteSheet> {
           }
         });
       }
-    } catch (e) {
-      debugPrint('Lỗi chọn ảnh: $e');
-    }
+    } catch (_) {}
   }
 
   Future<void> _pickVideo() async {
@@ -127,19 +127,18 @@ class _WriteSheetState extends State<WriteSheet> {
           });
         });
       }
-    } catch (e) {
-      debugPrint('Lỗi chọn video: $e');
-    }
+    } catch (_) {}
   }
 
   Future<void> _handlePost() async {
+    final l10n = context.l10n;
     final authProvider = context.read<app_auth.AuthProvider>();
     final postProvider = context.read<PostProvider>();
     final homeProvider = context.read<HomeProvider>();
     final firebaseUid = authProvider.currentUserData?['firebase_uid'];
 
     if (firebaseUid == null) {
-      _showSnack('Lỗi xác thực. Vui lòng đăng nhập lại.', isError: true);
+      _showSnack(l10n.authErrorRelogin, isError: true);
       return;
     }
 
@@ -167,12 +166,12 @@ class _WriteSheetState extends State<WriteSheet> {
       setState(() => _selectedMedia.clear());
       _focusNode.unfocus();
       Navigator.pop(context); // Close the bottom sheet on success!
-      _showSnack('Đã đăng thành công!');
+      _showSnack(l10n.postSuccess);
       
       // Load lại bảng tin Home để hiển thị bài viết mới đăng ngay lập tức
       homeProvider.refreshFeed();
     } else if (mounted) {
-      _showSnack(postProvider.errorMessage ?? 'Đăng thất bại', isError: true);
+      _showSnack(postProvider.errorMessage ?? l10n.postFailure, isError: true);
     }
   }
 
@@ -197,6 +196,7 @@ class _WriteSheetState extends State<WriteSheet> {
 
   @override
   Widget build(BuildContext context) {
+    final l10n = context.l10n;
     final isLoading = context.watch<PostProvider>().isLoading || _isUploadingMedia;
     final hasContent = _controller.text.trim().isNotEmpty || _selectedMedia.isNotEmpty;
     final canPost = hasContent && !isLoading && !_isOverLimit;
@@ -227,7 +227,7 @@ class _WriteSheetState extends State<WriteSheet> {
                 width: 40,
                 height: 5,
                 decoration: BoxDecoration(
-                  color: AppColors.ink.withOpacity(0.15),
+                  color: AppColors.ink.withValues(alpha: 0.15),
                   borderRadius: BorderRadius.circular(4),
                 ),
               ),
@@ -245,7 +245,7 @@ class _WriteSheetState extends State<WriteSheet> {
                       padding: const EdgeInsets.symmetric(
                           horizontal: 8, vertical: 6),
                       child: Text(
-                        'Huỷ',
+                        l10n.cancel,
                         style: GoogleFonts.quicksand(
                           fontSize: 14,
                           fontWeight: FontWeight.w700,
@@ -257,7 +257,7 @@ class _WriteSheetState extends State<WriteSheet> {
                   Expanded(
                     child: Center(
                       child: Text(
-                        'Tạo thread mới',
+                        l10n.createThreadTitle,
                         style: GoogleFonts.quicksand(
                           fontSize: 16,
                           fontWeight: FontWeight.w700,
@@ -357,7 +357,7 @@ class _WriteSheetState extends State<WriteSheet> {
                                     height: 1.4,
                                   ),
                                   decoration: InputDecoration(
-                                    hintText: 'Có gì mới? 🍑',
+                                    hintText: '${l10n.writePlaceholder} 🍑',
                                     hintStyle: GoogleFonts.nunito(
                                       color: AppColors.inkSoft,
                                       fontSize: 14,
@@ -513,7 +513,7 @@ class _WriteSheetState extends State<WriteSheet> {
                           gradient:
                               canPost ? AppColors.primaryGradient : null,
                           color:
-                              canPost ? null : AppColors.peach.withOpacity(0.5),
+                              canPost ? null : AppColors.peach.withValues(alpha: 0.5),
                           borderRadius: BorderRadius.circular(14),
                           boxShadow: canPost ? AppColors.shadowBtn : null,
                         ),
@@ -528,7 +528,7 @@ class _WriteSheetState extends State<WriteSheet> {
                                   ),
                                 )
                               : Text(
-                                  'Đăng',
+                                  l10n.postChip,
                                   style: GoogleFonts.quicksand(
                                     color: canPost
                                         ? Colors.white

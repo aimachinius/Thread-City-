@@ -67,11 +67,6 @@ class MessageModel {
   }
 
   factory MessageModel.fromMap(Map<String, dynamic> map) {
-    if (map['type'] == 'POST_SHARE' || map['type'] == 'SHARED_POST') {
-      print('--- DEBUG MESSAGE FROM MAP ---');
-      print(map);
-      print('------------------------------');
-    }
     return MessageModel(
       id: map['id'],
       conversationId: map['conversation_id'],
@@ -108,11 +103,8 @@ class MessageModel {
       // LinkedHashMap<String, Object> which is not directly castable.
       final map = Map<String, dynamic>.from(postData as Map);
       final post = PostModel.fromMap(map);
-      print('[DEBUG] sharedPost parsed OK: id=${post.id}, content=${post.content}');
       return post;
-    } catch (e, stacktrace) {
-      print('[ERROR] _parseSharedPost failed: $e');
-      print(stacktrace);
+    } catch (_) {
       return null;
     }
   }

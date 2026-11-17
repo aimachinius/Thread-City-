@@ -5,6 +5,7 @@ class UserModel {
   final String? nickname;
   final String? bio;
   final String? avatarUrl;
+  final String? firebaseUid;
   final DateTime? createdAt;
   bool isOnline;
 
@@ -15,6 +16,7 @@ class UserModel {
     this.nickname,
     this.bio,
     this.avatarUrl,
+    this.firebaseUid,
     this.createdAt,
     this.isOnline = false,
   });
@@ -27,6 +29,7 @@ class UserModel {
       nickname: map['nickname'],
       bio: map['bio'],
       avatarUrl: map['avatar_url'],
+      firebaseUid: map['firebase_uid'],
       createdAt: map['created_at'] != null ? DateTime.tryParse(map['created_at'].toString()) : null,
       isOnline: map['is_online'] ?? false,
     );
@@ -40,6 +43,7 @@ class UserModel {
       'nickname': nickname,
       'bio': bio,
       'avatar_url': avatarUrl,
+      'firebase_uid': firebaseUid,
       'created_at': createdAt?.toIso8601String(),
       'is_online': isOnline,
     };

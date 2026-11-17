@@ -37,4 +37,28 @@ class NotificationModel {
       post: map['post'] != null ? PostModel.fromMap(Map<String, dynamic>.from(map['post'])) : null,
     );
   }
+
+  NotificationModel copyWith({
+    int? id,
+    int? userId,
+    int? actorId,
+    int? postId,
+    String? type,
+    bool? isRead,
+    DateTime? createdAt,
+    UserModel? actor,
+    PostModel? post,
+  }) {
+    return NotificationModel(
+      id: id ?? this.id,
+      userId: userId ?? this.userId,
+      actorId: actorId ?? this.actorId,
+      postId: postId ?? this.postId,
+      type: type ?? this.type,
+      isRead: isRead ?? this.isRead,
+      createdAt: createdAt ?? this.createdAt,
+      actor: actor ?? this.actor,
+      post: post ?? this.post,
+    );
+  }
 }

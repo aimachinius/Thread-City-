@@ -7,7 +7,9 @@ import '../providers/user_provider.dart';
 import '../providers/message_provider.dart';
 import '../theme/app_colors.dart';
 import '../core/config/app_config.dart';
+import 'package:share_plus/share_plus.dart';
 import 'custom_cached_image.dart';
+import '../l10n/app_localizations.dart';
 
 class SharePostSheet extends StatefulWidget {
   final PostModel post;
@@ -75,6 +77,7 @@ class _SharePostSheetState extends State<SharePostSheet> {
   }
 
   void _sendShare() async {
+    final l10n = context.l10n;
     final messageProvider = context.read<MessageProvider>();
     final scaffoldMessenger = ScaffoldMessenger.of(context);
     final int postId = widget.post.id;
@@ -83,7 +86,7 @@ class _SharePostSheetState extends State<SharePostSheet> {
     Navigator.pop(context);
     
     scaffoldMessenger.showSnackBar(
-      const SnackBar(content: Text('Đang gửi...'), duration: Duration(seconds: 1)),
+      SnackBar(content: Text('${l10n.statusSending}...'), duration: const Duration(seconds: 1)),
     );
 
     int successCount = 0;
@@ -91,7 +94,7 @@ class _SharePostSheetState extends State<SharePostSheet> {
     for (int userId in selectedIds) {
       final success = await messageProvider.sendChatMessage(
         receiverId: userId,
-        content: '[Đã chia sẻ bài viết]',
+        content: l10n.sharedPostMessage,
         type: 'POST_SHARE',
         sharedPostId: postId,
       );
@@ -104,26 +107,58 @@ class _SharePostSheetState extends State<SharePostSheet> {
 
     if (successCount > 0) {
       scaffoldMessenger.showSnackBar(
-        SnackBar(content: Text('Đã chia sẻ đến $successCount người.')),
+        SnackBar(content: Text(l10n.sharedCountSuccess(successCount))),
       );
     } else {
       scaffoldMessenger.showSnackBar(
-        SnackBar(content: Text('Lỗi gửi: ${lastError ?? 'Unknown'}')),
+        SnackBar(content: Text(lastError ?? l10n.failedToSendComment)),
       );
     }
   }
 
   void _copyLink() {
-    final link = '${AppConfig.baseUrl}/post/${widget.post.id}';
+    final l10n = context.l10n;
+    final link = AppConfig.getPostShareUrl(widget.post.id);
     Clipboard.setData(ClipboardData(text: link));
     Navigator.pop(context);
     ScaffoldMessenger.of(context).showSnackBar(
-      const SnackBar(content: Text('Đã sao chép liên kết')),
+      SnackBar(content: Text(l10n.copyLink)),
     );
+  }
+
+  Future<void> _shareExternal() async {
+    final l10n = context.l10n;
+    final scaffoldMessenger = ScaffoldMessenger.of(context);
+    final postShareUrl = AppConfig.getPostShareUrl(widget.post.id);
+    final authorName = widget.post.author?.nickname ?? widget.post.author?.username;
+    final shareText = authorName != null && authorName.isNotEmpty
+        ? l10n.viewPostShareText(authorName, postShareUrl)
+        : l10n.viewPostShareGenericText(postShareUrl);
+
+    final box = context.findRenderObject() as RenderBox?;
+    final origin = box == null ? null : box.localToGlobal(Offset.zero) & box.size;
+
+    Navigator.pop(context);
+
+    try {
+      await SharePlus.instance.share(
+        ShareParams(
+          text: shareText,
+          subject: 'Thread-City',
+          sharePositionOrigin: origin,
+        ),
+      );
+    } catch (e) {
+      debugPrint('Native Share error: $e');
+      scaffoldMessenger.showSnackBar(
+        SnackBar(content: Text(l10n.cannotOpenSystemShare)),
+      );
+    }
   }
 
   @override
   Widget build(BuildContext context) {
+    final l10n = context.l10n;
     return Container(
       decoration: const BoxDecoration(
         color: AppColors.surface,
@@ -142,9 +177,9 @@ class _SharePostSheetState extends State<SharePostSheet> {
             ),
           ),
           const SizedBox(height: 16),
-          const Text(
-            'Chia sẻ bài viết',
-            style: TextStyle(
+          Text(
+            l10n.sharePostTitle,
+            style: const TextStyle(
               fontSize: 16,
               fontWeight: FontWeight.w700,
               color: AppColors.textPrimary,
@@ -155,12 +190,17 @@ class _SharePostSheetState extends State<SharePostSheet> {
           Padding(
             padding: const EdgeInsets.symmetric(horizontal: 16.0),
             child: Row(
-              mainAxisAlignment: MainAxisAlignment.spaceAround,
+              mainAxisAlignment: MainAxisAlignment.spaceEvenly,
               children: [
                 _buildActionItem(
                   icon: Icons.copy,
-                  label: 'Sao chép liên kết',
+                  label: l10n.copyLink,
                   onTap: _copyLink,
+                ),
+                _buildActionItem(
+                  icon: Icons.share_outlined,
+                  label: l10n.shareViaSystem,
+                  onTap: _shareExternal,
                 ),
               ],
             ),
@@ -172,10 +212,10 @@ class _SharePostSheetState extends State<SharePostSheet> {
             child: _isLoading
                 ? const Center(child: CircularProgressIndicator())
                 : _users.isEmpty
-                    ? const Center(
+                    ? Center(
                         child: Text(
-                          'Bạn chưa theo dõi ai.',
-                          style: TextStyle(color: AppColors.textSecondary),
+                          l10n.noFollowingYet,
+                          style: const TextStyle(color: AppColors.textSecondary),
                         ),
                       )
                     : ListView.builder(
@@ -231,7 +271,7 @@ class _SharePostSheetState extends State<SharePostSheet> {
                   ),
                 ),
                 child: Text(
-                  'Gửi riêng (${_selectedUserIds.length})',
+                  '${l10n.sendViaDM} (${_selectedUserIds.length})',
                   style: const TextStyle(
                     fontSize: 16,
                     fontWeight: FontWeight.bold,

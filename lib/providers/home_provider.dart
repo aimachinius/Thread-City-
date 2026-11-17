@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import '../models/post_model.dart';
 import '../data/repositories/post_repository.dart';
 import 'auth_provider.dart';
+import '../l10n/app_localizations.dart';
 
 class HomeProvider extends ChangeNotifier {
   final IPostRepository _postRepository;
@@ -66,7 +67,7 @@ class HomeProvider extends ChangeNotifier {
       _lastFetchedUid = firebaseUid; // Lưu UID đã fetch để tránh gọi lại trùng
       _posts = await _postRepository.getFeed(firebaseUid: firebaseUid);
     } catch (e) {
-      _errorMessage = 'Không thể tải bảng tin. Vui lòng thử lại.';
+      _errorMessage = AppLocalizations.current.failedToLoadFeed;
     } finally {
       _isLoading = false;
       notifyListeners();
@@ -89,7 +90,7 @@ class HomeProvider extends ChangeNotifier {
         following: true,
       );
     } catch (e) {
-      _followingErrorMessage = 'Không thể tải bảng tin đang theo dõi.';
+      _followingErrorMessage = AppLocalizations.current.failedToLoadFollowingFeed;
     } finally {
       _isFollowingLoading = false;
       notifyListeners();
@@ -179,6 +180,49 @@ class HomeProvider extends ChangeNotifier {
       final post = _followingPosts[followingIndex];
       _followingPosts[followingIndex] = post.copyWith(
         commentCount: post.commentCount + 1,
+      );
+      changed = true;
+    }
+
+    if (changed) {
+      notifyListeners();
+    }
+  }
+
+  /// Xóa bài viết khỏi bảng tin cục bộ (cả For You và Following)
+  void removePost(int postId) {
+    bool changed = false;
+    final initialLen = _posts.length;
+    _posts.removeWhere((p) => p.id == postId);
+    if (_posts.length != initialLen) changed = true;
+
+    final initialFollowingLen = _followingPosts.length;
+    _followingPosts.removeWhere((p) => p.id == postId);
+    if (_followingPosts.length != initialFollowingLen) changed = true;
+
+    if (changed) {
+      notifyListeners();
+    }
+  }
+
+  /// Giảm số lượng bình luận cục bộ khi một bình luận bị xóa
+  void decrementCommentCount(int postId) {
+    bool changed = false;
+
+    final index = _posts.indexWhere((p) => p.id == postId);
+    if (index != -1) {
+      final post = _posts[index];
+      _posts[index] = post.copyWith(
+        commentCount: (post.commentCount - 1).clamp(0, 999999999),
+      );
+      changed = true;
+    }
+
+    final followingIndex = _followingPosts.indexWhere((p) => p.id == postId);
+    if (followingIndex != -1) {
+      final post = _followingPosts[followingIndex];
+      _followingPosts[followingIndex] = post.copyWith(
+        commentCount: (post.commentCount - 1).clamp(0, 999999999),
       );
       changed = true;
     }

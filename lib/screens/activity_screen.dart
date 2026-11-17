@@ -2,10 +2,15 @@ import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:provider/provider.dart';
 import '../theme/app_colors.dart';
+import '../providers/auth_provider.dart';
 import '../providers/notification_provider.dart';
 import '../models/notification_model.dart';
+import '../models/user_model.dart';
 import '../widgets/bouncy_tap.dart';
 import '../widgets/custom_cached_image.dart';
+import 'post_detail_screen.dart';
+import 'profile_screen.dart';
+import '../l10n/app_localizations.dart';
 
 class ActivityScreen extends StatefulWidget {
   const ActivityScreen({super.key});
@@ -40,7 +45,12 @@ class ActivityScreenState extends State<ActivityScreen>
     }
   }
 
-  final _filters = ['Tất cả', 'Lượt thích', 'Bình luận', 'Theo dõi'];
+  List<String> _getFilters(BuildContext context) => [
+    context.l10n.filterAll,
+    context.l10n.filterLikes,
+    context.l10n.filterReplies,
+    context.l10n.filterFollows,
+  ];
 
   @override
   void initState() {
@@ -118,24 +128,24 @@ class ActivityScreenState extends State<ActivityScreen>
   String _getActionText(String type) {
     switch (type) {
       case 'like':
-        return 'đã thích bài viết của bạn';
+        return context.l10n.notiLikedPost;
       case 'reply':
-        return 'đã trả lời bài viết của bạn';
+        return context.l10n.notiRepliedPost;
       case 'follow':
-        return 'đã bắt đầu theo dõi bạn';
+        return context.l10n.notiFollowedYou;
       case 'repost':
-        return 'đã chia sẻ lại bài của bạn';
+        return context.l10n.notiRepostedPost;
       default:
-        return 'đã tương tác với bạn';
+        return context.l10n.interactedWithYou;
     }
   }
 
   String _formatTime(DateTime time) {
     final diff = DateTime.now().difference(time);
-    if (diff.inSeconds < 60) return 'Vừa xong';
-    if (diff.inMinutes < 60) return '${diff.inMinutes}p';
-    if (diff.inHours < 24) return '${diff.inHours}h';
-    return '${diff.inDays}d';
+    if (diff.inSeconds < 60) return context.l10n.timeJustNow;
+    if (diff.inMinutes < 60) return context.l10n.timeMinutes(diff.inMinutes);
+    if (diff.inHours < 24) return context.l10n.timeHours(diff.inHours);
+    return context.l10n.timeDays(diff.inDays);
   }
 
   @override
@@ -172,7 +182,7 @@ class ActivityScreenState extends State<ActivityScreen>
                       ),
                       const SizedBox(width: 8),
                       Text(
-                        '$unreadCount thông báo mới',
+                        context.l10n.newNotificationsCount(unreadCount),
                         style: GoogleFonts.quicksand(
                           fontSize: 12.5,
                           fontWeight: FontWeight.w700,
@@ -190,7 +200,8 @@ class ActivityScreenState extends State<ActivityScreen>
               padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 6),
               physics: const BouncingScrollPhysics(),
               child: Row(
-                children: List.generate(_filters.length, (index) {
+                children: List.generate(_getFilters(context).length, (index) {
+                  final filters = _getFilters(context);
                   final selected = _selectedFilter == index;
                   return Padding(
                     padding: const EdgeInsets.only(right: 8),
@@ -206,7 +217,7 @@ class ActivityScreenState extends State<ActivityScreen>
                           boxShadow: selected ? null : AppColors.shadowSoft,
                         ),
                         child: Text(
-                          _filters[index],
+                          filters[index],
                           style: GoogleFonts.quicksand(
                             fontWeight: FontWeight.w700,
                             fontSize: 12.5,
@@ -313,7 +324,7 @@ class ActivityScreenState extends State<ActivityScreen>
             ),
             const SizedBox(height: 20),
             Text(
-              'Chưa có hoạt động nào',
+              context.l10n.noActivityTitle,
               style: GoogleFonts.quicksand(
                 fontSize: 16,
                 fontWeight: FontWeight.w700,
@@ -322,7 +333,7 @@ class ActivityScreenState extends State<ActivityScreen>
             ),
             const SizedBox(height: 8),
             Text(
-              'Lượt thích, bình luận và người theo dõi mới\nsẽ xuất hiện ở đây khi có ai đó ghé qua 🌿',
+              context.l10n.noActivitySub,
               style: GoogleFonts.nunito(
                 fontSize: 12.5,
                 color: AppColors.inkSoft,
@@ -354,6 +365,54 @@ class _ActivityCard extends StatelessWidget {
     required this.timeText,
   });
 
+  void _openProfile(BuildContext context, UserModel actor) {
+    final loggedInUser = context.read<AuthProvider>().currentUserData;
+    final loggedInUid = loggedInUser?['firebase_uid'];
+    final isMe = actor.username == loggedInUser?['username'] ||
+        (actor.firebaseUid != null && actor.firebaseUid == loggedInUid) ||
+        actor.id.toString() == loggedInUser?['id']?.toString();
+
+    Navigator.push(
+      context,
+      MaterialPageRoute(
+        builder: (_) => ProfileScreen(
+          currentUsername: actor.username,
+          currentNickname: (actor.nickname != null && actor.nickname!.isNotEmpty)
+              ? actor.nickname!
+              : actor.username,
+          viewingUserId: isMe ? loggedInUid : (actor.firebaseUid ?? actor.id.toString()),
+        ),
+      ),
+    );
+  }
+
+  void _handleCardTap(BuildContext context) {
+    // 1. Mark as read immediately
+    context.read<NotificationProvider>().markAsRead(item.id);
+
+    // 2. Navigate based on notification type
+    if (item.type == 'follow') {
+      _openProfile(context, item.actor);
+    } else {
+      final targetPostId = item.post?.parentId ?? item.postId;
+      if (targetPostId != null && item.post != null) {
+        Navigator.push(
+          context,
+          MaterialPageRoute(
+            builder: (_) => PostDetailScreen(postId: targetPostId),
+          ),
+        );
+      } else {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(context.l10n.postNotFoundOrDeleted),
+            duration: const Duration(seconds: 2),
+          ),
+        );
+      }
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     final preview = item.post?.content ?? '';
@@ -364,71 +423,78 @@ class _ActivityCard extends StatelessWidget {
     return Padding(
       padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 5),
       child: BouncyTap(
-        onTap: () {},
+        onTap: () => _handleCardTap(context),
         child: Container(
           padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
           decoration: BoxDecoration(
-            color: Colors.white,
+            color: item.isRead ? Colors.white : const Color(0xFFF9FDFB),
             borderRadius: BorderRadius.circular(18),
+            border: item.isRead
+                ? null
+                : Border.all(color: const Color(0x7FA8DDD1), width: 1),
             boxShadow: AppColors.shadowSoft,
           ),
           child: Row(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              // Avatar with Squircle and badge
-              Stack(
-                clipBehavior: Clip.none,
-                children: [
-                  ClipRRect(
-                    borderRadius: const BorderRadius.only(
-                      topLeft: Radius.circular(14),
-                      topRight: Radius.circular(14),
-                      bottomRight: Radius.circular(14),
-                      bottomLeft: Radius.circular(5),
-                    ),
-                    child: Container(
-                      width: 40,
-                      height: 40,
-                      decoration: const BoxDecoration(
-                        gradient: AppColors.mintGradient,
+              // Avatar with Squircle and badge - Tappable to open profile
+              GestureDetector(
+                behavior: HitTestBehavior.opaque,
+                onTap: () => _openProfile(context, item.actor),
+                child: Stack(
+                  clipBehavior: Clip.none,
+                  children: [
+                    ClipRRect(
+                      borderRadius: const BorderRadius.only(
+                        topLeft: Radius.circular(14),
+                        topRight: Radius.circular(14),
+                        bottomRight: Radius.circular(14),
+                        bottomLeft: Radius.circular(5),
                       ),
-                      child: item.actor.avatarUrl != null &&
-                              item.actor.avatarUrl!.isNotEmpty
-                          ? CustomCachedImage(
-                              imageUrl: item.actor.avatarUrl,
-                              width: 40,
-                              height: 40,
-                              fit: BoxFit.cover,
-                            )
-                          : Center(
-                              child: Text(
-                                actorName.isNotEmpty
-                                    ? actorName[0].toUpperCase()
-                                    : '?',
-                                style: GoogleFonts.quicksand(
-                                  fontSize: 14,
-                                  fontWeight: FontWeight.w800,
-                                  color: Colors.white,
+                      child: Container(
+                        width: 40,
+                        height: 40,
+                        decoration: const BoxDecoration(
+                          gradient: AppColors.mintGradient,
+                        ),
+                        child: item.actor.avatarUrl != null &&
+                                item.actor.avatarUrl!.isNotEmpty
+                            ? CustomCachedImage(
+                                imageUrl: item.actor.avatarUrl,
+                                width: 40,
+                                height: 40,
+                                fit: BoxFit.cover,
+                              )
+                            : Center(
+                                child: Text(
+                                  actorName.isNotEmpty
+                                      ? actorName[0].toUpperCase()
+                                      : '?',
+                                  style: GoogleFonts.quicksand(
+                                    fontSize: 14,
+                                    fontWeight: FontWeight.w800,
+                                    color: Colors.white,
+                                  ),
                                 ),
                               ),
-                            ),
-                    ),
-                  ),
-                  Positioned(
-                    bottom: -2,
-                    right: -2,
-                    child: Container(
-                      width: 18,
-                      height: 18,
-                      decoration: BoxDecoration(
-                        color: typeColor,
-                        shape: BoxShape.circle,
-                        border: Border.all(color: Colors.white, width: 1.5),
                       ),
-                      child: Icon(typeIcon, size: 10, color: Colors.white),
                     ),
-                  ),
-                ],
+                    Positioned(
+                      bottom: -2,
+                      right: -2,
+                      child: Container(
+                        width: 18,
+                        height: 18,
+                        decoration: BoxDecoration(
+                          color: typeColor,
+                          shape: BoxShape.circle,
+                          border: Border.all(color: Colors.white, width: 1.5),
+                        ),
+                        child: Icon(typeIcon, size: 10, color: Colors.white),
+                      ),
+                    ),
+                  ],
+                ),
               ),
               const SizedBox(width: 12),
 
@@ -472,6 +538,17 @@ class _ActivityCard extends StatelessWidget {
                             color: AppColors.inkSoft,
                           ),
                         ),
+                        if (!item.isRead) ...[
+                          const SizedBox(width: 6),
+                          Container(
+                            width: 7,
+                            height: 7,
+                            decoration: const BoxDecoration(
+                              color: AppColors.mintDeep,
+                              shape: BoxShape.circle,
+                            ),
+                          ),
+                        ],
                       ],
                     ),
                     if (preview.isNotEmpty) ...[

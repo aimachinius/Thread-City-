@@ -1,8 +1,9 @@
 import 'package:flutter/material.dart';
-import '../../theme/app_colors.dart';
-import '../../widgets/app_logo.dart';
-import '../../widgets/app_text_field.dart';
+import '../theme/app_colors.dart';
+import '../widgets/app_logo.dart';
+import '../widgets/app_text_field.dart';
 import '../screens/main_screen.dart';
+import '../l10n/app_localizations.dart';
 
 class SignInScreen extends StatefulWidget {
   const SignInScreen({
@@ -53,19 +54,19 @@ class _SignInScreenState extends State<SignInScreen> {
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      const Center(
+                      Center(
                         child: Text(
-                          'Đăng nhập',
-                          style: TextStyle(
+                          context.l10n.loginButton,
+                          style: const TextStyle(
                             fontSize: 28,
                             fontWeight: FontWeight.w700,
                           ),
                         ),
                       ),
                       const SizedBox(height: 28),
-                      const Text(
-                        'Tên người dùng hoặc email',
-                        style: TextStyle(
+                      Text(
+                        context.l10n.emailOrUsername,
+                        style: const TextStyle(
                           color: AppColors.textSecondary,
                           fontWeight: FontWeight.w600,
                           fontSize: 15,
@@ -74,12 +75,12 @@ class _SignInScreenState extends State<SignInScreen> {
                       const SizedBox(height: 10),
                       AppTextField(
                         controller: usernameController,
-                        hintText: 'username hoặc email@example.com',
+                        hintText: context.l10n.usernameOrEmailHint,
                       ),
                       const SizedBox(height: 18),
-                      const Text(
-                        'Mật khẩu',
-                        style: TextStyle(
+                      Text(
+                        context.l10n.passwordLabel,
+                        style: const TextStyle(
                           color: AppColors.textSecondary,
                           fontWeight: FontWeight.w600,
                           fontSize: 15,
@@ -96,9 +97,9 @@ class _SignInScreenState extends State<SignInScreen> {
                         alignment: Alignment.centerRight,
                         child: TextButton(
                           onPressed: () {},
-                          child: const Text(
-                            'Quên mật khẩu?',
-                            style: TextStyle(color: Colors.black),
+                          child: Text(
+                            context.l10n.forgotPasswordQuestion,
+                            style: const TextStyle(color: Colors.black),
                           ),
                         ),
                       ),
@@ -122,9 +123,9 @@ class _SignInScreenState extends State<SignInScreen> {
                               borderRadius: BorderRadius.circular(18),
                             ),
                           ),
-                          child: const Text(
-                            'Đăng nhập',
-                            style: TextStyle(
+                          child: Text(
+                            context.l10n.loginButton,
+                            style: const TextStyle(
                               fontWeight: FontWeight.w700,
                               fontSize: 18,
                             ),
@@ -136,16 +137,16 @@ class _SignInScreenState extends State<SignInScreen> {
                         child: GestureDetector(
                           onTap: widget.onSwitchToSignUp,
                           child: RichText(
-                            text: const TextSpan(
-                              style: TextStyle(
+                            text: TextSpan(
+                              style: const TextStyle(
                                 fontSize: 16,
                                 color: AppColors.textSecondary,
                               ),
                               children: [
-                                TextSpan(text: 'Chưa có tài khoản? '),
+                                TextSpan(text: context.l10n.dontHaveAccount),
                                 TextSpan(
-                                  text: 'Đăng ký',
-                                  style: TextStyle(
+                                  text: context.l10n.signUpNow,
+                                  style: const TextStyle(
                                     color: Colors.black,
                                     fontWeight: FontWeight.w700,
                                   ),

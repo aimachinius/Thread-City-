@@ -1,4 +1,3 @@
-import 'dart:developer' as dev;
 import 'package:socket_io_client/socket_io_client.dart' as IO;
 import '../core/config/app_config.dart';
 
@@ -23,16 +22,8 @@ class SocketService {
 
     socket!.connect();
 
-    socket!.onConnect((_) {
-      dev.log('✅ Connected to Socket.io server', name: 'SocketService');
-    });
-
-    socket!.onDisconnect((_) {
-      dev.log('🛑 Disconnected from Socket.io server', name: 'SocketService');
-    });
-
-    socket!.onConnectError((err) => dev.log('⚠️ Socket Connect Error: $err', name: 'SocketService'));
-    socket!.onError((err) => dev.log('⚠️ Socket Error: $err', name: 'SocketService'));
+    socket!.onConnectError((err) {});
+    socket!.onError((err) {});
   }
 
   void disconnect() {
@@ -92,5 +83,9 @@ class SocketService {
 
   void onUserStatus(Function(dynamic) callback) {
     socket?.on('user_status', callback);
+  }
+
+  void onNewNotification(Function(dynamic) callback) {
+    socket?.on('new_notification', callback);
   }
 }

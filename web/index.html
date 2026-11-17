@@ -35,15 +35,17 @@
     passing them straight to the network without touching the Cache API.
   -->
   <script>
+    if (window.location.hostname !== 'localhost' && window.location.hostname !== '127.0.0.1') {
+      console.log = function () {};
+      console.debug = function () {};
+      console.info = function () {};
+    }
     if ('serviceWorker' in navigator) {
       navigator.serviceWorker.register('media_sw.js?v=2', { scope: '/' })
         .then(function(reg) {
           reg.update();
-          console.log('[MediaSW] Registered & updated, scope:', reg.scope);
         })
-        .catch(function(err) {
-          console.warn('[MediaSW] Registration failed:', err);
-        });
+        .catch(function(err) {});
     }
   </script>
 </head>

@@ -7,6 +7,8 @@ import '../theme/app_typography.dart';
 import '../widgets/app_logo.dart';
 import '../widgets/app_background.dart';
 import '../widgets/bouncy_tap.dart';
+import '../widgets/forgot_password_sheet.dart';
+import '../l10n/app_localizations.dart';
 
 class LoginScreen extends StatefulWidget {
   const LoginScreen({super.key});
@@ -51,7 +53,7 @@ class _LoginScreenState extends State<LoginScreen> {
     } else if (mounted) {
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
-          content: Text(authProvider.errorMessage ?? 'Đăng nhập thất bại'),
+          content: Text(authProvider.errorMessage ?? context.l10n.loginFailure),
           backgroundColor: AppColors.error,
         ),
       );
@@ -67,7 +69,7 @@ class _LoginScreenState extends State<LoginScreen> {
     } else {
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
-          content: Text(authProvider.errorMessage ?? 'Đăng nhập Google thất bại'),
+          content: Text(authProvider.errorMessage ?? context.l10n.googleLoginFailure),
           backgroundColor: AppColors.error,
         ),
       );
@@ -101,7 +103,7 @@ class _LoginScreenState extends State<LoginScreen> {
 
                   // ── Title & Subtitle ───────────────────────────────────────
                   Text(
-                    'Chào mừng trở lại',
+                    context.l10n.loginWelcome,
                     style: AppTypography.displayMedium.copyWith(
                       color: AppColors.ink,
                       fontWeight: FontWeight.w700,
@@ -110,7 +112,7 @@ class _LoginScreenState extends State<LoginScreen> {
                   ),
                   const SizedBox(height: 8),
                   Text(
-                    'Đăng nhập để tiếp tục hành trình của bạn',
+                    context.l10n.loginSubtitle,
                     style: AppTypography.bodyMedium.copyWith(
                       color: AppColors.inkSoft,
                     ),
@@ -122,7 +124,7 @@ class _LoginScreenState extends State<LoginScreen> {
                   _buildInputField(
                     controller: _emailController,
                     focusNode: _emailFocus,
-                    hintText: 'Email hoặc tên đăng nhập',
+                    hintText: context.l10n.emailOrUsername,
                     icon: Icons.mail_outline_rounded,
                     keyboardType: TextInputType.emailAddress,
                     enabled: !isLoading,
@@ -133,7 +135,7 @@ class _LoginScreenState extends State<LoginScreen> {
                   _buildInputField(
                     controller: _passwordController,
                     focusNode: _passwordFocus,
-                    hintText: 'Mật khẩu',
+                    hintText: context.l10n.passwordLabel,
                     icon: Icons.lock_outline_rounded,
                     obscureText: _obscurePassword,
                     enabled: !isLoading,
@@ -155,9 +157,16 @@ class _LoginScreenState extends State<LoginScreen> {
                     child: Padding(
                       padding: const EdgeInsets.only(top: 10, right: 4),
                       child: BouncyTap(
-                        onTap: isLoading ? null : () {},
+                        onTap: isLoading
+                            ? null
+                            : () {
+                                showForgotPasswordSheet(
+                                  context,
+                                  initialEmail: _emailController.text.trim(),
+                                );
+                              },
                         child: Text(
-                          'Quên mật khẩu?',
+                          context.l10n.forgotPasswordQuestion,
                           style: AppTypography.titleSmall.copyWith(
                             color: AppColors.mintDeep,
                             fontWeight: FontWeight.w700,
@@ -190,7 +199,7 @@ class _LoginScreenState extends State<LoginScreen> {
                                 ),
                               )
                             : Text(
-                                'Đăng nhập',
+                                context.l10n.loginButton,
                                 style: AppTypography.titleLarge.copyWith(
                                   color: Colors.white,
                                   fontWeight: FontWeight.w700,
@@ -207,13 +216,13 @@ class _LoginScreenState extends State<LoginScreen> {
                       Expanded(
                         child: Container(
                           height: 1,
-                          color: AppColors.ink.withOpacity(0.12),
+                          color: AppColors.ink.withValues(alpha: 0.12),
                         ),
                       ),
                       Padding(
                         padding: const EdgeInsets.symmetric(horizontal: 14),
                         child: Text(
-                          'hoặc',
+                          context.l10n.orDivider,
                           style: AppTypography.bodySmall.copyWith(
                             color: AppColors.inkSoft,
                           ),
@@ -222,7 +231,7 @@ class _LoginScreenState extends State<LoginScreen> {
                       Expanded(
                         child: Container(
                           height: 1,
-                          color: AppColors.ink.withOpacity(0.12),
+                          color: AppColors.ink.withValues(alpha: 0.12),
                         ),
                       ),
                     ],
@@ -239,7 +248,7 @@ class _LoginScreenState extends State<LoginScreen> {
                         color: Colors.white,
                         borderRadius: BorderRadius.circular(20),
                         border: Border.all(
-                          color: AppColors.ink.withOpacity(0.10),
+                          color: AppColors.ink.withValues(alpha: 0.10),
                           width: 1.5,
                         ),
                         boxShadow: AppColors.shadowSoft,
@@ -250,7 +259,7 @@ class _LoginScreenState extends State<LoginScreen> {
                           _buildGoogleIcon(),
                           const SizedBox(width: 12),
                           Text(
-                            'Tiếp tục với Google',
+                            context.l10n.continueWithGoogle,
                             style: AppTypography.titleSmall.copyWith(
                               color: AppColors.ink,
                               fontWeight: FontWeight.w700,
@@ -267,7 +276,7 @@ class _LoginScreenState extends State<LoginScreen> {
                     mainAxisAlignment: MainAxisAlignment.center,
                     children: [
                       Text(
-                        'Chưa có tài khoản? ',
+                        '${context.l10n.dontHaveAccount} ',
                         style: AppTypography.bodyMedium.copyWith(
                           color: AppColors.inkSoft,
                         ),
@@ -277,7 +286,7 @@ class _LoginScreenState extends State<LoginScreen> {
                             ? null
                             : () => Navigator.pushNamed(context, AppRoutes.register),
                         child: Text(
-                          'Đăng ký',
+                          context.l10n.signUpNow,
                           style: AppTypography.titleSmall.copyWith(
                             color: AppColors.coralDeep,
                             fontWeight: FontWeight.w800,

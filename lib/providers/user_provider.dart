@@ -6,6 +6,7 @@ import 'package:image_picker/image_picker.dart';
 import '../models/post_model.dart';
 import '../data/repositories/post_repository.dart';
 import '../data/repositories/user_repository.dart';
+import '../l10n/app_localizations.dart';
 
 
 class UserProvider extends ChangeNotifier {
@@ -43,11 +44,10 @@ class UserProvider extends ChangeNotifier {
       
       _userData = userResult;
       _userPosts = postsResult;
-    } catch (e) {
+    } catch (_) {
       _userData = null;
       _userPosts = [];
-      _errorMessage = 'Không thể tải thông tin cá nhân. Vui lòng thử lại.';
-      print('Lỗi fetchProfile: $e');
+      _errorMessage = AppLocalizations.current.failedToLoadProfile;
     } finally {
       _isLoading = false;
       notifyListeners();
@@ -57,8 +57,7 @@ class UserProvider extends ChangeNotifier {
   Future<Map<String, dynamic>?> getProfileDataOnly(String firebaseUid, {String? viewerUid}) async {
     try {
       return await _userRepository.getUserProfile(firebaseUid, viewerUid: viewerUid);
-    } catch (e) {
-      print('Lỗi getProfileDataOnly: $e');
+    } catch (_) {
       return null;
     }
   }
@@ -66,8 +65,7 @@ class UserProvider extends ChangeNotifier {
   Future<List<PostModel>> getUserPostsOnly(String firebaseUid, {String? viewerUid}) async {
     try {
       return await _postRepository.getPostsByUserUid(firebaseUid, viewerUid: viewerUid);
-    } catch (e) {
-      print('Lỗi getUserPostsOnly: $e');
+    } catch (_) {
       return [];
     }
   }
@@ -75,8 +73,7 @@ class UserProvider extends ChangeNotifier {
   Future<List<PostModel>> getUserRepostsOnly(String firebaseUid, {String? viewerUid}) async {
     try {
       return await _postRepository.getUserReposts(firebaseUid, viewerUid: viewerUid);
-    } catch (e) {
-      print('Lỗi getUserRepostsOnly: $e');
+    } catch (_) {
       return [];
     }
   }
@@ -85,8 +82,7 @@ class UserProvider extends ChangeNotifier {
     try {
       await _userRepository.followUser(followerUid: followerUid, followingId: followingId);
       return true;
-    } catch (e) {
-      print('Lỗi followUser: $e');
+    } catch (_) {
       return false;
     }
   }
@@ -95,8 +91,7 @@ class UserProvider extends ChangeNotifier {
     try {
       await _userRepository.unfollowUser(followerUid: followerUid, followingId: followingId);
       return true;
-    } catch (e) {
-      print('Lỗi unfollowUser: $e');
+    } catch (_) {
       return false;
     }
   }
@@ -121,9 +116,8 @@ class UserProvider extends ChangeNotifier {
       // Sau khi update thành công, tải lại profile để cập nhật UI
       await fetchProfile(firebaseUid, viewerUid: firebaseUid);
       return true;
-    } catch (e) {
-      _errorMessage = 'Không thể cập nhật thông tin. Vui lòng thử lại.';
-      print('Lỗi updateProfile: $e');
+    } catch (_) {
+      _errorMessage = AppLocalizations.current.failedToUpdateProfile;
       return false;
     } finally {
       _isLoading = false;
@@ -166,16 +160,13 @@ class UserProvider extends ChangeNotifier {
       final snapshot = await uploadTask;
       final downloadUrl = await snapshot.ref.getDownloadURL();
 
-      print('[STORAGE] 🎉 Tải ảnh lên thành công. URL: $downloadUrl');
-
       // 2. Cập nhật vào MySQL
       return await updateProfile(
         firebaseUid: firebaseUid,
         avatarUrl: downloadUrl,
       );
-    } catch (e) {
-      _errorMessage = 'Lỗi tải ảnh lên: $e';
-      print('Lỗi upload avatar chi tiết: $e');
+    } catch (_) {
+      _errorMessage = AppLocalizations.current.failedToUploadImage;
       return false;
     } finally {
       _isLoading = false;
@@ -192,8 +183,7 @@ class UserProvider extends ChangeNotifier {
   Future<List<Map<String, dynamic>>> getUserFollowers(String userId) async {
     try {
       return await _userRepository.getUserFollowers(userId);
-    } catch (e) {
-      print('Lỗi getUserFollowers: $e');
+    } catch (_) {
       return [];
     }
   }
@@ -201,8 +191,7 @@ class UserProvider extends ChangeNotifier {
   Future<List<Map<String, dynamic>>> getUserFollowing(String userId) async {
     try {
       return await _userRepository.getUserFollowing(userId);
-    } catch (e) {
-      print('Lỗi getUserFollowing: $e');
+    } catch (_) {
       return [];
     }
   }
@@ -239,6 +228,33 @@ class UserProvider extends ChangeNotifier {
       final post = _userPosts[index];
       _userPosts[index] = post.copyWith(
         commentCount: post.commentCount + 1,
+      );
+      notifyListeners();
+    }
+  }
+
+  /// Xóa bài viết khỏi trang cá nhân cục bộ và giảm số lượng bài viết trong stats
+  void removePost(int postId) {
+    final initialLen = _userPosts.length;
+    _userPosts.removeWhere((p) => p.id == postId);
+    if (_userPosts.length != initialLen) {
+      if (_userData != null && _userData!['stats'] != null) {
+        final currentCount = _userData!['stats']['posts'] ?? 0;
+        if (currentCount > 0) {
+          _userData!['stats']['posts'] = currentCount - 1;
+        }
+      }
+      notifyListeners();
+    }
+  }
+
+  /// Giảm số lượng bình luận cục bộ trên bài viết của User
+  void decrementCommentCount(int postId) {
+    final index = _userPosts.indexWhere((p) => p.id == postId);
+    if (index != -1) {
+      final post = _userPosts[index];
+      _userPosts[index] = post.copyWith(
+        commentCount: (post.commentCount - 1).clamp(0, 999999999),
       );
       notifyListeners();
     }

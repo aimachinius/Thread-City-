@@ -1,6 +1,8 @@
 import { Request, Response } from "express";
 import { PrismaClient } from "@prisma/client";
 import { extractHashtags } from "../utils/hashtagUtils.js";
+import { computeEngagementRaw, scoreHashtagPost } from "../utils/searchRanking.js";
+import { getIO } from "../socket.js";
 
 const prisma = new PrismaClient();
 
@@ -37,6 +39,7 @@ export const getFeed = async (req: Request, res: Response) => {
         const posts = await prisma.post.findMany({
             where: { 
                 parent_id: null,
+                deleted_at: null,
                 user_id: following ? { in: followedUserIds } : undefined
             },
             include: {
@@ -57,7 +60,10 @@ export const getFeed = async (req: Request, res: Response) => {
 
         // Lấy danh sách các bài reposts
         const reposts = await prisma.repost.findMany({
-            where: { user_id: following ? { in: followedUserIds } : undefined },
+            where: { 
+                user_id: following ? { in: followedUserIds } : undefined,
+                post: { deleted_at: null }
+            },
             include: {
                 user: { select: { id: true, username: true, avatar_url: true } }, // Người repost
                 post: {
@@ -114,14 +120,15 @@ export const getFeed = async (req: Request, res: Response) => {
 
 // Tạo bài viết mới hoặc Bình luận (Reply)
 export const createPost = async (req: Request, res: Response) => {
-    const { firebase_uid, content, parent_id, type, media } = req.body;
+    const callerUid = (req as any).user?.firebaseUid || req.body.firebase_uid;
+    const { content, parent_id, type, media } = req.body;
 
-    if (!firebase_uid || !content) {
+    if (!callerUid || !content) {
         return res.status(400).json({ message: 'Missing required fields' });
     }
 
     try {
-        const user = await prisma.user.findUnique({ where: { firebase_uid: firebase_uid as string } });
+        const user = await prisma.user.findUnique({ where: { firebase_uid: callerUid as string } });
         if (!user) return res.status(404).json({ message: 'User not found' });
 
         const newPost = await prisma.$transaction(async (tx) => {
@@ -212,6 +219,20 @@ export const createPost = async (req: Request, res: Response) => {
             });
         });
 
+        if (parent_id) {
+            const pId = parseInt(parent_id.toString(), 10);
+            const parentPost = await prisma.post.findUnique({ where: { id: pId }, select: { user_id: true } });
+            if (parentPost && parentPost.user_id !== user.id) {
+                try {
+                    getIO().to(`user_${parentPost.user_id}`).emit('new_notification', {
+                        type: 'reply',
+                        postId: pId,
+                        actorId: user.id
+                    });
+                } catch (_) {}
+            }
+        }
+
         return res.status(201).json(newPost);
     } catch (error) {
         console.error('Lỗi createPost:', error);
@@ -233,15 +254,15 @@ export const getReplies = async (req: Request, res: Response) => {
         // Tìm bài viết gốc để lấy ID của tác giả gốc (mainPost.user_id)
         const mainPost = await prisma.post.findUnique({
             where: { id: postId },
-            select: { user_id: true }
+            select: { user_id: true, deleted_at: true }
         });
 
-        if (!mainPost) {
+        if (!mainPost || mainPost.deleted_at !== null) {
             return res.status(404).json({ message: "Post not found" });
         }
 
         const replies = await prisma.post.findMany({
-            where: { parent_id: postId },
+            where: { parent_id: postId, deleted_at: null },
             include: {
                 user: { select: { id: true, username: true, nickname: true, avatar_url: true } },
                 counts: true,
@@ -255,6 +276,7 @@ export const getReplies = async (req: Request, res: Response) => {
                 } : undefined,
                 // Lấy tất cả phản hồi lồng của bình luận này
                 replies: {
+                    where: { deleted_at: null },
                     include: {
                         user: { select: { id: true, username: true, nickname: true, avatar_url: true } },
                         counts: true,
@@ -302,7 +324,7 @@ export const getReplies = async (req: Request, res: Response) => {
 // Thả tim / Bỏ thả tim bài viết (Toggle Like)
 export const toggleLike = async (req: Request, res: Response) => {
     const id = req.params.id as string;
-    const firebase_uid = req.body.firebase_uid as string;
+    const firebase_uid = (req as any).user?.firebaseUid || (req.body.firebase_uid as string);
 
     if (!firebase_uid) {
         return res.status(400).json({ message: 'Missing firebase_uid' });
@@ -317,8 +339,8 @@ export const toggleLike = async (req: Request, res: Response) => {
             return res.status(400).json({ message: 'Invalid post ID' });
         }
 
-        const post = await prisma.post.findUnique({ where: { id: postId }, select: { id: true, user_id: true } });
-        if (!post) {
+        const post = await prisma.post.findUnique({ where: { id: postId }, select: { id: true, user_id: true, deleted_at: true } });
+        if (!post || post.deleted_at !== null) {
             return res.status(404).json({ message: 'Post not found' });
         }
 
@@ -337,6 +359,14 @@ export const toggleLike = async (req: Request, res: Response) => {
                         update: { like_count: { decrement: 1 } },
                         create: { post_id: postId, like_count: 0 }
                     });
+                    await tx.notification.deleteMany({
+                        where: {
+                            user_id: post.user_id,
+                            actor_id: user.id,
+                            post_id: postId,
+                            type: 'like'
+                        }
+                    }).catch(() => {});
                 } catch (delErr: any) {
                     if (delErr.code === 'P2025') return { liked: false };
                     throw delErr;
@@ -354,6 +384,15 @@ export const toggleLike = async (req: Request, res: Response) => {
                     });
 
                     if (post.user_id !== user.id) {
+                        await tx.notification.deleteMany({
+                            where: {
+                                user_id: post.user_id,
+                                actor_id: user.id,
+                                post_id: postId,
+                                type: 'like'
+                            }
+                        }).catch(() => {});
+
                         await tx.notification.create({
                             data: {
                                 user_id: post.user_id,
@@ -374,6 +413,16 @@ export const toggleLike = async (req: Request, res: Response) => {
             }
         });
 
+        if (post.user_id !== user.id && result.liked) {
+            try {
+                getIO().to(`user_${post.user_id}`).emit('new_notification', {
+                    type: 'like',
+                    postId,
+                    actorId: user.id
+                });
+            } catch (_) {}
+        }
+
         return res.json(result);
     } catch (error: any) {
         if (error?.code === 'P2002') {
@@ -387,7 +436,7 @@ export const toggleLike = async (req: Request, res: Response) => {
 // Đăng lại / Hủy đăng lại (Toggle Repost)
 export const toggleRepost = async (req: Request, res: Response) => {
     const id = req.params.id as string;
-    const firebase_uid = req.body.firebase_uid as string;
+    const firebase_uid = (req as any).user?.firebaseUid || (req.body.firebase_uid as string);
 
     if (!firebase_uid) {
         return res.status(400).json({ message: 'Missing firebase_uid' });
@@ -403,8 +452,8 @@ export const toggleRepost = async (req: Request, res: Response) => {
         }
 
         // 🛡️ Không cho phép đăng lại bài viết của chính mình
-        const post = await prisma.post.findUnique({ where: { id: postId }, select: { user_id: true } });
-        if (!post) return res.status(404).json({ message: 'Post not found' });
+        const post = await prisma.post.findUnique({ where: { id: postId }, select: { id: true, user_id: true, deleted_at: true } });
+        if (!post || post.deleted_at !== null) return res.status(404).json({ message: 'Post not found' });
         if (post.user_id === user.id) {
             return res.status(403).json({ message: 'Không thể đăng lại bài viết của chính bạn' });
         }
@@ -425,6 +474,14 @@ export const toggleRepost = async (req: Request, res: Response) => {
                         update: { repost_count: { decrement: 1 } },
                         create: { post_id: postId, repost_count: 0 }
                     });
+                    await tx.notification.deleteMany({
+                        where: {
+                            user_id: post.user_id,
+                            actor_id: user.id,
+                            post_id: postId,
+                            type: 'repost'
+                        }
+                    }).catch(() => {});
                 } catch (delErr: any) {
                     if (delErr.code === 'P2025') return { reposted: false };
                     throw delErr;
@@ -443,6 +500,15 @@ export const toggleRepost = async (req: Request, res: Response) => {
                     });
 
                     if (post && post.user_id !== user.id) {
+                        await tx.notification.deleteMany({
+                            where: {
+                                user_id: post.user_id,
+                                actor_id: user.id,
+                                post_id: postId,
+                                type: 'repost'
+                            }
+                        }).catch(() => {});
+
                         await tx.notification.create({
                             data: {
                                 user_id: post.user_id,
@@ -462,6 +528,16 @@ export const toggleRepost = async (req: Request, res: Response) => {
                 return { reposted: true };
             }
         });
+
+        if (post && post.user_id !== user.id && result.reposted) {
+            try {
+                getIO().to(`user_${post.user_id}`).emit('new_notification', {
+                    type: 'repost',
+                    postId,
+                    actorId: user.id
+                });
+            } catch (_) {}
+        }
 
         return res.json(result);
     } catch (error: any) {
@@ -489,7 +565,8 @@ export const getPostsByUserUid = async (req: Request, res: Response) => {
         const posts = await prisma.post.findMany({
             where: { 
                 user_id: user.id,
-                parent_id: null
+                parent_id: null,
+                deleted_at: null
             },
             include: {
                 user: { select: { id: true, username: true, avatar_url: true } },
@@ -535,7 +612,10 @@ export const getUserReposts = async (req: Request, res: Response) => {
         if (!user) return res.status(404).json({ message: "User not found" });
 
         const reposts = await prisma.repost.findMany({
-            where: { user_id: user.id },
+            where: { 
+                user_id: user.id,
+                post: { deleted_at: null }
+            },
             include: {
                 user: { select: { id: true, username: true, avatar_url: true } },
                 post: {
@@ -572,4 +652,307 @@ export const getUserReposts = async (req: Request, res: Response) => {
         return res.status(500).json({ message: "Internal server error" });
     }
 };
+
+// Lấy chi tiết một bài viết theo ID (cho Public URL & Post Detail Screen)
+export const getPostById = async (req: Request, res: Response) => {
+    const id = (Array.isArray(req.params.id) ? req.params.id[0] : req.params.id) as string | undefined;
+    const viewer_uid = (req.query.viewer_uid || req.query.firebase_uid) as string | undefined;
+
+    // 1. Input Validation: ID phải là số nguyên dương
+    if (!id || !/^\d+$/.test(id)) {
+        return res.status(400).json({ message: "Invalid post ID" });
+    }
+
+    const postId = parseInt(id, 10);
+    if (isNaN(postId) || postId <= 0) {
+        return res.status(400).json({ message: "Invalid post ID" });
+    }
+
+    try {
+        // 2. Query Post
+        const post = await prisma.post.findUnique({
+            where: { id: postId },
+            include: {
+                user: { select: { id: true, username: true, nickname: true, avatar_url: true } },
+                counts: true,
+                media: true,
+                hashtags: { include: { hashtag: true } },
+                likes: viewer_uid ? {
+                    where: { user: { firebase_uid: viewer_uid } }
+                } : undefined,
+                reposts: viewer_uid ? {
+                    where: { user: { firebase_uid: viewer_uid } }
+                } : undefined
+            }
+        });
+
+        // 3. Check not found hoặc đã bị xóa
+        if (!post || post.deleted_at !== null) {
+            return res.status(404).json({ message: "Post not found" });
+        }
+
+        // 4. Xác định following state nếu có viewer
+        let isFollowing = false;
+        if (viewer_uid) {
+            const viewer = await prisma.user.findUnique({
+                where: { firebase_uid: viewer_uid },
+                select: { id: true }
+            });
+            if (viewer && viewer.id !== post.user_id) {
+                const follow = await prisma.follow.findFirst({
+                    where: {
+                        follower_id: viewer.id,
+                        following_id: post.user_id
+                    }
+                });
+                isFollowing = !!follow;
+            }
+        }
+
+        // 5. Format response tương thích PostModel
+        const formattedPost = {
+            ...post,
+            isLiked: (post as any).likes ? (post as any).likes.length > 0 : false,
+            isReposted: (post as any).reposts ? (post as any).reposts.length > 0 : false,
+            likes: undefined,
+            reposts: undefined,
+            isFollowing
+        };
+
+        return res.json(formattedPost);
+    } catch (error) {
+        console.error('Lỗi getPostById:', error);
+        return res.status(500).json({ message: "Internal server error" });
+    }
+};
+
+/**
+ * GET /api/posts/hashtag/:tag?sort=top|latest&viewer_uid=
+ */
+export const getPostsByHashtag = async (req: Request, res: Response) => {
+    try {
+        const rawTag = String(req.params.tag ?? '').trim();
+        const canonicalTag = rawTag.startsWith('#') ? rawTag.slice(1).toLowerCase().trim() : rawTag.toLowerCase().trim();
+
+        if (!canonicalTag) {
+            return res.status(400).json({ error: 'Hashtag không hợp lệ' });
+        }
+
+        const allowedSorts = ['latest', 'top'];
+        const sort = String(req.query.sort ?? 'latest');
+        if (!allowedSorts.includes(sort)) {
+            return res.status(400).json({ error: 'sort không hợp lệ. Cho phép: latest, top' });
+        }
+
+        const viewerUid = req.query.viewer_uid ? String(req.query.viewer_uid) : null;
+        const reqNow = new Date();
+
+        let followedUserIds: number[] = [];
+        if (viewerUid) {
+            const viewer = await prisma.user.findUnique({
+                where: { firebase_uid: viewerUid },
+                select: { id: true }
+            });
+            if (viewer) {
+                const follows = await prisma.follow.findMany({
+                    where: { follower_id: viewer.id },
+                    select: { following_id: true }
+                });
+                followedUserIds = follows.map(f => f.following_id);
+            }
+        }
+
+        if (sort === 'latest') {
+            const posts = await prisma.post.findMany({
+                where: {
+                    parent_id: null,
+                    deleted_at: null,
+                    hashtags: { some: { hashtag: { tag_name: canonicalTag } } }
+                },
+                orderBy: [{ created_at: 'desc' }, { id: 'desc' }],
+                take: 30,
+                include: {
+                    user: { select: { id: true, username: true, nickname: true, avatar_url: true } },
+                    counts: true,
+                    media: true,
+                    hashtags: { include: { hashtag: true } },
+                    likes: viewerUid ? {
+                        where: { user: { firebase_uid: viewerUid } },
+                        select: { user_id: true },
+                        take: 1,
+                    } : false,
+                    reposts: viewerUid ? {
+                        where: { user: { firebase_uid: viewerUid } },
+                        select: { user_id: true },
+                        take: 1,
+                    } : false,
+                }
+            });
+
+            const formatted = posts.map((p: any) => ({
+                ...p,
+                isLiked: p.likes ? p.likes.length > 0 : false,
+                isReposted: p.reposts ? p.reposts.length > 0 : false,
+                likes: undefined,
+                reposts: undefined,
+                isFollowing: followedUserIds.includes(p.user_id),
+            }));
+
+            return res.json({ posts: formatted });
+        }
+
+        // Chế độ Top: Candidate pool tối đa 500 root posts hợp lệ gần nhất
+        const candidatePosts = await prisma.post.findMany({
+            where: {
+                parent_id: null,
+                deleted_at: null,
+                hashtags: { some: { hashtag: { tag_name: canonicalTag } } }
+            },
+            take: 500,
+            orderBy: [{ created_at: 'desc' }, { id: 'desc' }],
+            include: {
+                user: { select: { id: true, username: true, nickname: true, avatar_url: true } },
+                counts: true,
+                media: true,
+                hashtags: { include: { hashtag: true } },
+                likes: viewerUid ? {
+                    where: { user: { firebase_uid: viewerUid } },
+                    select: { user_id: true },
+                    take: 1,
+                } : false,
+                reposts: viewerUid ? {
+                    where: { user: { firebase_uid: viewerUid } },
+                    select: { user_id: true },
+                    take: 1,
+                } : false,
+            }
+        });
+
+        const withRaw = candidatePosts.map((p: any) => ({
+            post: p,
+            rawEngagement: computeEngagementRaw(
+                p.counts?.like_count || 0,
+                p.counts?.comment_count || 0,
+                p.counts?.repost_count || 0,
+            ),
+        }));
+
+        const maxRawEngagement = Math.max(0, ...withRaw.map(w => w.rawEngagement));
+
+        // Tie-break 3 cấp: score DESC -> created_at DESC -> id DESC
+        const ranked = withRaw.map(w => ({
+            post: w.post,
+            score: scoreHashtagPost({ createdAt: w.post.created_at, rawEngagement: w.rawEngagement }, maxRawEngagement, reqNow),
+        })).sort((a, b) => {
+            if (b.score !== a.score) return b.score - a.score;
+            const bTime = b.post.created_at ? new Date(b.post.created_at).getTime() : 0;
+            const aTime = a.post.created_at ? new Date(a.post.created_at).getTime() : 0;
+            const timeDiff = bTime - aTime;
+            if (timeDiff !== 0) return timeDiff;
+            return b.post.id - a.post.id;
+        }).slice(0, 30);
+
+        const formatted = ranked.map(r => {
+            const p = r.post;
+            return {
+                ...p,
+                isLiked: p.likes ? p.likes.length > 0 : false,
+                isReposted: p.reposts ? p.reposts.length > 0 : false,
+                likes: undefined,
+                reposts: undefined,
+                isFollowing: followedUserIds.includes(p.user_id),
+            };
+        });
+
+        return res.json({ posts: formatted });
+    } catch (error) {
+        console.error('Lỗi getPostsByHashtag:', error);
+        return res.status(500).json({ message: "Internal server error" });
+    }
+};
+
+/**
+ * DELETE /api/posts/:id
+ * Xóa mềm bài viết (Soft delete)
+ */
+export const deletePost = async (req: Request, res: Response) => {
+    const id = (Array.isArray(req.params.id) ? req.params.id[0] : req.params.id) as string | undefined;
+    const callerUid = (req as any).user?.firebaseUid ||
+        (req.headers?.['x-firebase-uid'] as string) ||
+        (req.body?.firebase_uid as string) ||
+        (req.query?.firebase_uid as string);
+
+    if (!callerUid) {
+        return res.status(401).json({ message: "Unauthorized" });
+    }
+
+    if (!id || !/^\d+$/.test(id)) {
+        return res.status(400).json({ message: "Invalid post ID" });
+    }
+
+    const postId = parseInt(id, 10);
+    if (isNaN(postId) || postId <= 0) {
+        return res.status(400).json({ message: "Invalid post ID" });
+    }
+
+    try {
+        const user = await prisma.user.findUnique({
+            where: { firebase_uid: callerUid },
+            select: { id: true }
+        });
+
+        if (!user) {
+            return res.status(404).json({ message: "User not found" });
+        }
+
+        const post = await prisma.post.findUnique({
+            where: { id: postId },
+            select: { id: true, user_id: true, parent_id: true, deleted_at: true }
+        });
+
+        if (!post || post.deleted_at !== null) {
+            return res.status(404).json({ message: "Post not found" });
+        }
+
+        // Kiểm tra quyền: Chỉ tác giả mới có quyền xóa bài viết của mình
+        if (post.user_id !== user.id) {
+            return res.status(403).json({ message: "Bạn không có quyền xóa bài viết này" });
+        }
+
+        await prisma.$transaction(async (tx) => {
+            const now = new Date();
+
+            // 1. Soft-delete bài viết mục tiêu
+            await tx.post.update({
+                where: { id: postId },
+                data: { deleted_at: now }
+            });
+
+            // 2. Soft-delete các bình luận trực tiếp của bài viết này nếu có
+            await tx.post.updateMany({
+                where: { parent_id: postId, deleted_at: null },
+                data: { deleted_at: now }
+            });
+
+            // 3. Nếu là bình luận (có parent_id), giảm comment_count của bài cha
+            if (post.parent_id) {
+                await tx.postCount.updateMany({
+                    where: { post_id: post.parent_id, comment_count: { gt: 0 } },
+                    data: { comment_count: { decrement: 1 } }
+                });
+            }
+
+            // 4. Dọn dẹp notification liên quan đến bài viết này
+            await tx.notification.deleteMany({
+                where: { post_id: postId }
+            });
+        });
+
+        return res.json({ success: true, message: "Đã xóa bài viết thành công" });
+    } catch (error) {
+        console.error("Lỗi deletePost:", error);
+        return res.status(500).json({ message: "Internal server error" });
+    }
+};
+
 

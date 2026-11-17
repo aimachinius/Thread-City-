@@ -5,6 +5,7 @@ import '../../providers/auth_provider.dart';
 import '../../providers/home_provider.dart';
 import '../../providers/user_provider.dart';
 import '../../providers/message_provider.dart';
+import '../../providers/notification_provider.dart';
 import '../../theme/app_colors.dart';
 import '../../theme/app_typography.dart';
 import '../../widgets/app_logo.dart';
@@ -15,7 +16,10 @@ import 'home_screen.dart';
 import 'profile_screen.dart';
 import 'search_screen.dart';
 import '../../widgets/write_sheet.dart';
+import '../../widgets/change_password_sheet.dart';
 import '../../widgets/bouncy_tap.dart';
+import '../../l10n/app_localizations.dart';
+import '../../widgets/language_selector_sheet.dart';
 
 class MainScreen extends StatefulWidget {
   const MainScreen({super.key});
@@ -44,6 +48,7 @@ class _MainScreenState extends State<MainScreen>
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (mounted) {
         context.read<MessageProvider>().fetchConversations();
+        context.read<NotificationProvider>().fetchNotifications(isSilent: true);
       }
     });
   }
@@ -138,7 +143,7 @@ class _MainScreenState extends State<MainScreen>
                       _slideRoute(const ConversationsScreen()),
                     );
                   },
-                  tooltip: 'Tin nhắn',
+                  tooltip: context.l10n.messagesTitle,
                 );
               },
             ),
@@ -151,7 +156,7 @@ class _MainScreenState extends State<MainScreen>
         return _StyledAppBar(
           onLogoTap: _onLogoTap,
           title: Text(
-            'Tìm kiếm',
+            context.l10n.navSearch,
             style: AppTypography.headlineSmall.copyWith(
               color: AppColors.ink,
               fontWeight: FontWeight.w700,
@@ -165,7 +170,7 @@ class _MainScreenState extends State<MainScreen>
         return _StyledAppBar(
           onLogoTap: _onLogoTap,
           title: Text(
-            'Thread mới',
+            context.l10n.navNewThread,
             style: AppTypography.headlineSmall.copyWith(
               color: AppColors.ink,
               fontWeight: FontWeight.w700,
@@ -178,7 +183,7 @@ class _MainScreenState extends State<MainScreen>
         return _StyledAppBar(
           onLogoTap: _onLogoTap,
           title: Text(
-            'Hoạt động',
+            context.l10n.navActivity,
             style: AppTypography.headlineMedium.copyWith(
               color: AppColors.ink,
               fontWeight: FontWeight.w700,
@@ -209,6 +214,7 @@ class _MainScreenState extends State<MainScreen>
       context: context,
       backgroundColor: Colors.transparent,
       useRootNavigator: true,
+      isScrollControlled: true,
       builder: (_) => _ProfileMenuSheet(
         onLogout: () async {
           Navigator.pop(context);
@@ -250,11 +256,16 @@ class _MainScreenState extends State<MainScreen>
             _CenterFabButton(
               onTap: () => _onTabChanged(2),
             ),
-            _FloatingNavItem(
-              icon: Icons.favorite_rounded,
-              index: 3,
-              currentIndex: _currentIndex,
-              onTap: _onTabChanged,
+            Consumer<NotificationProvider>(
+              builder: (context, notifProvider, _) {
+                return _FloatingNavItem(
+                  icon: Icons.favorite_rounded,
+                  index: 3,
+                  currentIndex: _currentIndex,
+                  onTap: _onTabChanged,
+                  showBadge: notifProvider.hasUnread,
+                );
+              },
             ),
             _FloatingNavItem(
               icon: Icons.person_rounded,
@@ -379,7 +390,7 @@ class _AppBarIconButton extends StatelessWidget {
                     border: Border.all(color: AppColors.cream, width: 2),
                     boxShadow: [
                       BoxShadow(
-                        color: AppColors.coral.withOpacity(0.4),
+                        color: AppColors.coral.withValues(alpha: 0.4),
                         blurRadius: 4,
                         offset: const Offset(0, 2),
                       ),
@@ -415,55 +426,77 @@ class _ProfileMenuSheet extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Container(
-      margin: const EdgeInsets.fromLTRB(12, 0, 12, 20),
-      decoration: BoxDecoration(
-        color: AppColors.surface,
-        borderRadius: BorderRadius.circular(20),
-        boxShadow: AppColors.floatShadow,
-        border: Border.all(color: AppColors.borderLight, width: 0.5),
-      ),
-      child: Column(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          const SizedBox(height: 10),
-          Container(
-            width: 36,
-            height: 4,
-            decoration: BoxDecoration(
-              color: AppColors.border,
-              borderRadius: BorderRadius.circular(2),
-            ),
+    return SafeArea(
+      top: false,
+      child: Container(
+        margin: const EdgeInsets.fromLTRB(12, 0, 12, 20),
+        decoration: BoxDecoration(
+          color: AppColors.surface,
+          borderRadius: BorderRadius.circular(20),
+          boxShadow: AppColors.floatShadow,
+          border: Border.all(color: AppColors.borderLight, width: 0.5),
+        ),
+        child: SingleChildScrollView(
+          physics: const BouncingScrollPhysics(),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              const SizedBox(height: 10),
+              Container(
+                width: 36,
+                height: 4,
+                decoration: BoxDecoration(
+                  color: AppColors.border,
+                  borderRadius: BorderRadius.circular(2),
+                ),
+              ),
+              const SizedBox(height: 8),
+              _MenuItem(
+                icon: Icons.settings_outlined,
+                label: context.l10n.menuSettings,
+                onTap: () => Navigator.pop(context),
+              ),
+              _MenuItem(
+                icon: Icons.translate_rounded,
+                label: context.l10n.language,
+                onTap: () {
+                  Navigator.pop(context);
+                  showLanguageSelectorSheet(context);
+                },
+              ),
+              _MenuItem(
+                icon: Icons.lock_reset_rounded,
+                label: context.l10n.menuChangePassword,
+                onTap: () {
+                  Navigator.pop(context);
+                  showChangePasswordSheet(context);
+                },
+              ),
+              _MenuItem(
+                icon: Icons.bookmark_border_rounded,
+                label: context.l10n.menuSaved,
+                onTap: () => Navigator.pop(context),
+              ),
+              _MenuItem(
+                icon: Icons.qr_code_rounded,
+                label: context.l10n.menuYourQr,
+                onTap: () => Navigator.pop(context),
+              ),
+              Container(
+                height: 0.5,
+                margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
+                color: AppColors.borderLight,
+              ),
+              _MenuItem(
+                icon: Icons.logout_rounded,
+                label: context.l10n.menuLogout,
+                onTap: onLogout,
+                isDestructive: true,
+              ),
+              const SizedBox(height: 8),
+            ],
           ),
-          const SizedBox(height: 8),
-          _MenuItem(
-            icon: Icons.settings_outlined,
-            label: 'Cài đặt',
-            onTap: () => Navigator.pop(context),
-          ),
-          _MenuItem(
-            icon: Icons.bookmark_border_rounded,
-            label: 'Đã lưu',
-            onTap: () => Navigator.pop(context),
-          ),
-          _MenuItem(
-            icon: Icons.qr_code_rounded,
-            label: 'Mã QR của bạn',
-            onTap: () => Navigator.pop(context),
-          ),
-          Container(
-            height: 0.5,
-            margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
-            color: AppColors.borderLight,
-          ),
-          _MenuItem(
-            icon: Icons.logout_rounded,
-            label: 'Đăng xuất',
-            onTap: onLogout,
-            isDestructive: true,
-          ),
-          const SizedBox(height: 8),
-        ],
+        ),
       ),
     );
   }
@@ -515,7 +548,7 @@ class _MenuItemState extends State<_MenuItem> {
                 height: 36,
                 decoration: BoxDecoration(
                   color: widget.isDestructive
-                      ? AppColors.error.withOpacity(0.08)
+                      ? AppColors.error.withValues(alpha: 0.08)
                       : AppColors.inputFill,
                   borderRadius: BorderRadius.circular(10),
                 ),
@@ -541,12 +574,14 @@ class _FloatingNavItem extends StatelessWidget {
   final int index;
   final int currentIndex;
   final void Function(int) onTap;
+  final bool showBadge;
 
   const _FloatingNavItem({
     required this.icon,
     required this.index,
     required this.currentIndex,
     required this.onTap,
+    this.showBadge = false,
   });
 
   @override
@@ -566,10 +601,29 @@ class _FloatingNavItem extends StatelessWidget {
           borderRadius: BorderRadius.circular(14),
         ),
         child: Center(
-          child: Icon(
-            icon,
-            size: 22,
-            color: isActive ? AppColors.coralDeep : AppColors.inkSoft,
+          child: Stack(
+            clipBehavior: Clip.none,
+            children: [
+              Icon(
+                icon,
+                size: 22,
+                color: isActive ? AppColors.coralDeep : AppColors.inkSoft,
+              ),
+              if (showBadge)
+                Positioned(
+                  top: -2,
+                  right: -2,
+                  child: Container(
+                    width: 7.5,
+                    height: 7.5,
+                    decoration: BoxDecoration(
+                      color: AppColors.heart,
+                      shape: BoxShape.circle,
+                      border: Border.all(color: Colors.white, width: 1.5),
+                    ),
+                  ),
+                ),
+            ],
           ),
         ),
       ),

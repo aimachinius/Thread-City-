@@ -10,6 +10,7 @@ import '../widgets/app_logo.dart';
 import '../models/conversation_model.dart';
 import '../widgets/bouncy_tap.dart';
 import 'chat_detail_screen.dart';
+import '../l10n/app_localizations.dart';
 
 class ConversationsScreen extends StatefulWidget {
   const ConversationsScreen({super.key});
@@ -114,7 +115,7 @@ class _ConversationsScreenState extends State<ConversationsScreen> {
                 ),
                 const SizedBox(width: 8),
                 Text(
-                  'Nhắn tin',
+                  context.l10n.messagesTitle,
                   style: AppTypography.headlineMedium.copyWith(
                     color: AppColors.textPrimary,
                     fontWeight: FontWeight.w800,
@@ -159,15 +160,15 @@ class _ConversationsScreenState extends State<ConversationsScreen> {
               decoration: BoxDecoration(
                 gradient: LinearGradient(
                   colors: [
-                    AppColors.accentBlue.withOpacity(0.1),
-                    AppColors.accentPurple.withOpacity(0.1),
+                    AppColors.accentBlue.withValues(alpha: 0.1),
+                    AppColors.accentPurple.withValues(alpha: 0.1),
                   ],
                   begin: Alignment.topLeft,
                   end: Alignment.bottomRight,
                 ),
                 shape: BoxShape.circle,
                 border: Border.all(
-                  color: AppColors.accentBlue.withOpacity(0.2),
+                  color: AppColors.accentBlue.withValues(alpha: 0.2),
                   width: 0.8,
                 ),
               ),
@@ -179,7 +180,7 @@ class _ConversationsScreenState extends State<ConversationsScreen> {
             ),
             const SizedBox(height: 24),
             Text(
-              'Chưa có cuộc trò chuyện',
+              context.l10n.noConversationsTitle,
               style: AppTypography.headlineSmall.copyWith(
                 color: AppColors.textPrimary,
                 fontWeight: FontWeight.w700,
@@ -187,7 +188,7 @@ class _ConversationsScreenState extends State<ConversationsScreen> {
             ),
             const SizedBox(height: 8),
             Text(
-              'Tìm mọi người để bắt đầu nhắn tin',
+              context.l10n.noConversationsSub,
               style: AppTypography.bodySmall.copyWith(
                 color: AppColors.textSecondary,
                 height: 1.6,
@@ -229,10 +230,10 @@ class _ConversationTileState extends State<_ConversationTile> {
     final now = DateTime.now();
     final diff = now.difference(dateTime);
 
-    if (diff.inMinutes < 1) return 'Vừa xong';
-    if (diff.inHours < 1) return '${diff.inMinutes} phút';
-    if (diff.inDays < 1) return '${diff.inHours} giờ';
-    if (diff.inDays < 7) return '${diff.inDays} ngày';
+    if (diff.inMinutes < 1) return context.l10n.timeJustNow;
+    if (diff.inHours < 1) return context.l10n.timeMinutes(diff.inMinutes);
+    if (diff.inDays < 1) return context.l10n.timeHours(diff.inHours);
+    if (diff.inDays < 7) return context.l10n.timeDays(diff.inDays);
     return '${dateTime.day}/${dateTime.month}';
   }
 
@@ -343,7 +344,7 @@ class _ConversationTileState extends State<_ConversationTile> {
                                     .read<AuthProvider>()
                                     .currentUserData?['id'] as int?;
                                 final isMine = lastMessage?.senderId == currentUserId;
-                                final badgeText = isMine ? 'Đang chờ' : 'Yêu cầu';
+                                final badgeText = isMine ? context.l10n.tagPending : context.l10n.tagRequest;
                                 return Container(
                                   padding: const EdgeInsets.symmetric(
                                       horizontal: 8, vertical: 3),
@@ -393,20 +394,20 @@ class _ConversationTileState extends State<_ConversationTile> {
                                 .currentUserData?['id'] as int?;
                             final isMine = lastMessage?.senderId == currentUserId;
 
-                            String messageText = 'Bắt đầu cuộc trò chuyện';
+                            String messageText = context.l10n.startConversationPrompt;
                             if (lastMessage != null) {
                               if (lastMessage.isDeleted) {
-                                messageText = 'Tin nhắn đã được thu hồi';
+                                messageText = context.l10n.messageRecalled;
                               } else {
                                 final content = (lastMessage.content != null &&
                                         lastMessage.content!.isNotEmpty)
                                     ? lastMessage.content!
                                     : (lastMessage.mediaUrl != null
                                         ? (enumName(lastMessage.type) == 'VIDEO'
-                                            ? '[Video]'
-                                            : '[Hình ảnh]')
+                                            ? context.l10n.messageVideoTag
+                                            : context.l10n.messagePhotoTag)
                                         : '');
-                                messageText = isMine ? 'Bạn: $content' : content;
+                                messageText = isMine ? context.l10n.youPrefix(content) : content;
                               }
                             }
 
@@ -459,7 +460,7 @@ class _ConversationTileState extends State<_ConversationTile> {
             Icon(
               Icons.chevron_right_rounded,
               size: 18,
-              color: AppColors.borderFocus.withOpacity(0.2),
+              color: AppColors.borderFocus.withValues(alpha: 0.2),
             ),
           ],
         ),

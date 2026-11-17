@@ -49,6 +49,11 @@ dependencies:
   firebase_messaging_web: ^3.9.4
   socket_io_client: ^3.1.4
   google_fonts: ^6.2.1
+  share_plus: ^13.3.0
+  flutter_localizations:
+    sdk: flutter
+  intl: ^0.20.2
+  shared_preferences: ^2.3.2
 
 
 dev_dependencies:

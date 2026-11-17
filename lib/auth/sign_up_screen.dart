@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import '../../theme/app_colors.dart';
 import '../../widgets/app_logo.dart';
 import '../../widgets/app_text_field.dart';
+import '../l10n/app_localizations.dart';
 
 class SignUpScreen extends StatefulWidget {
   const SignUpScreen({
@@ -58,42 +59,42 @@ class _SignUpScreenState extends State<SignUpScreen> {
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      const Center(
+                      Center(
                         child: Text(
-                          'Tạo tài khoản',
-                          style: TextStyle(
+                          context.l10n.registerTitle,
+                          style: const TextStyle(
                             fontSize: 28,
                             fontWeight: FontWeight.w700,
                           ),
                         ),
                       ),
                       const SizedBox(height: 28),
-                      const _FieldLabel('Tên người dùng'),
+                      _FieldLabel(context.l10n.usernameLabel),
                       AppTextField(
                         controller: usernameController,
                         hintText: 'username',
                       ),
                       const SizedBox(height: 18),
-                      const _FieldLabel('Biệt danh'),
+                      _FieldLabel(context.l10n.nicknameLabel),
                       AppTextField(
                         controller: nicknameController,
-                        hintText: 'Tên hiển thị của bạn',
+                        hintText: context.l10n.nicknameHint,
                       ),
                       const SizedBox(height: 18),
-                      const _FieldLabel('Email'),
+                      _FieldLabel(context.l10n.emailLabel),
                       AppTextField(
                         controller: emailController,
                         hintText: 'email@example.com',
                       ),
                       const SizedBox(height: 18),
-                      const _FieldLabel('Mật khẩu'),
+                      _FieldLabel(context.l10n.passwordLabel),
                       AppTextField(
                         controller: passwordController,
                         hintText: '••••••••',
                         obscureText: true,
                       ),
                       const SizedBox(height: 18),
-                      const _FieldLabel('Xác nhận mật khẩu'),
+                      _FieldLabel(context.l10n.confirmPasswordLabel),
                       AppTextField(
                         controller: confirmPasswordController,
                         hintText: '••••••••',
@@ -108,8 +109,8 @@ class _SignUpScreenState extends State<SignUpScreen> {
                             if (passwordController.text !=
                                 confirmPasswordController.text) {
                               ScaffoldMessenger.of(context).showSnackBar(
-                                const SnackBar(
-                                  content: Text('Mật khẩu không khớp'),
+                                SnackBar(
+                                  content: Text(context.l10n.passwordsDoNotMatch),
                                 ),
                               );
                               return;
@@ -127,9 +128,9 @@ class _SignUpScreenState extends State<SignUpScreen> {
                               borderRadius: BorderRadius.circular(18),
                             ),
                           ),
-                          child: const Text(
-                            'Tạo tài khoản',
-                            style: TextStyle(
+                          child: Text(
+                            context.l10n.registerTitle,
+                            style: const TextStyle(
                               fontWeight: FontWeight.w700,
                               fontSize: 18,
                             ),
@@ -141,16 +142,16 @@ class _SignUpScreenState extends State<SignUpScreen> {
                         child: GestureDetector(
                           onTap: widget.onSwitchToSignIn,
                           child: RichText(
-                            text: const TextSpan(
-                              style: TextStyle(
+                            text: TextSpan(
+                              style: const TextStyle(
                                 fontSize: 16,
                                 color: AppColors.textSecondary,
                               ),
                               children: [
-                                TextSpan(text: 'Đã có tài khoản? '),
+                                TextSpan(text: context.l10n.alreadyHaveAccount),
                                 TextSpan(
-                                  text: 'Đăng nhập',
-                                  style: TextStyle(
+                                  text: context.l10n.signInNow,
+                                  style: const TextStyle(
                                     color: Colors.black,
                                     fontWeight: FontWeight.w700,
                                   ),

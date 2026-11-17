@@ -1,10 +1,10 @@
 import 'dart:io';
-import 'package:flutter/foundation.dart' show kDebugMode;
 import 'package:flutter/material.dart';
 import 'package:flutter/scheduler.dart';
 import 'package:video_player/video_player.dart';
 import '../theme/app_colors.dart';
 import 'custom_cached_image.dart';
+import '../l10n/app_localizations.dart';
 
 bool _isFrameBuilding() =>
     SchedulerBinding.instance.schedulerPhase == SchedulerPhase.persistentCallbacks;
@@ -348,13 +348,6 @@ class _VideoPlayerWidgetState extends State<VideoPlayerWidget> {
     _controller = ctrl;
     ctrl.addListener(_onControllerUpdate);
 
-    if (kDebugMode) {
-      debugPrint(
-        '[VIDEO] mount  | ${widget.videoUrl.split('/').last} '
-        '| controller#${ctrl.hashCode}',
-      );
-    }
-
     ctrl.initialize().then((_) {
       if (_isDisposed || !mounted) {
         ctrl.dispose();
@@ -383,9 +376,6 @@ class _VideoPlayerWidgetState extends State<VideoPlayerWidget> {
         }
       });
     }).catchError((error) {
-      if (kDebugMode) {
-        debugPrint('[VIDEO] error  | ${widget.videoUrl.split('/').last} | $error');
-      }
       if (_isDisposed || !mounted) return;
       _safeSetState(() => _hasError = true);
     });
@@ -399,9 +389,6 @@ class _VideoPlayerWidgetState extends State<VideoPlayerWidget> {
     Future.microtask(() {
       if (ctrl.value.isInitialized) ctrl.pause();
       ctrl.dispose();
-      if (kDebugMode) {
-        debugPrint('[VIDEO] dispose | controller#${ctrl.hashCode}');
-      }
     });
   }
 
@@ -426,9 +413,6 @@ class _VideoPlayerWidgetState extends State<VideoPlayerWidget> {
     if (_isDisposed || !mounted || _controller == null) return;
     final value = _controller!.value;
     if (value.hasError && !_hasError) {
-      if (kDebugMode) {
-        debugPrint('[VIDEO] error via listener | ${value.errorDescription}');
-      }
       _safeSetState(() => _hasError = true);
       return;
     }
@@ -490,9 +474,9 @@ class _VideoPlayerWidgetState extends State<VideoPlayerWidget> {
             const Icon(Icons.video_camera_back_outlined,
                 color: AppColors.textSecondary, size: 38),
             const SizedBox(height: 10),
-            const Text(
-              'Không thể phát video này',
-              style: TextStyle(
+            Text(
+              context.l10n.cannotPlayVideo,
+              style: const TextStyle(
                 color: AppColors.textPrimary,
                 fontWeight: FontWeight.w700,
                 fontSize: 14,
@@ -516,9 +500,9 @@ class _VideoPlayerWidgetState extends State<VideoPlayerWidget> {
                     color: AppColors.coral,
                     borderRadius: BorderRadius.circular(20),
                   ),
-                  child: const Text(
-                    'Thử lại',
-                    style: TextStyle(
+                  child: Text(
+                    context.l10n.tryAgain,
+                    style: const TextStyle(
                       color: Colors.white,
                       fontWeight: FontWeight.w700,
                       fontSize: 12,
