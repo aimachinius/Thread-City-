@@ -1,472 +1,121 @@
-# 🧵🏙️ Thread City - スケーラブルなリアルタイム分散SNSエンジン & マルチプラットフォームクライアント
+# 🧵 Thread City - クロスプラットフォームSNSアプリ
 
-[Tiếng Việt](README.md) • [English](README.en.md) • [日本語](README.ja.md)
+> **Thread City** は、**Flutter**（フロントエンド）と **Node.js / Express**（バックエンド）で構築されたモダンなソーシャルネットワークアプリケーション（Threads / X 風）です。**モバイル（Android/iOS）** と **Web** の両方で快適に動作し、投稿共有、ソーシャルインタラクション、リアルタイムチャットを提供します。
 
----
-
-> **Thread City** は、Web SPAおよびモバイルネイティブ（Android / iOS）に対応した、高負荷耐性を備えた次世代マイクロブログ型分散ソーシャルネットワーク基盤です。クリーンなレイヤードアーキテクチャ、フィード取得を $O(1)$ に最適化する非正規化カウンターキャッシュ、Redis Pub/Subを活用した水平分散リアルタイムエンジン、およびGoogle暗号署名検証によるハイブリッド認証を採用しています。
+🌐 **Web デモ**: [https://thread-b4d7b.web.app](https://thread-b4d7b.web.app)
 
 ---
 
-## 🌐 1. 本番稼働環境（Live Production System）
+## ✨ 1. 主な機能
 
-本システムはクラウドインフラストラクチャ上で24時間365日独立稼働しています：
-
-* 🖥️ **Webクライアント（本番環境）**: [https://thread-b4d7b.web.app](https://thread-b4d7b.web.app)
-* ⚡ **バックエンドAPIゲートウェイ（Cloud Engine）**: `https://<backend-host>.onrender.com` *(保護インスタンス - レート制限 & ゼロトラスト認証)*
-* 🔌 **リアルタイムWebSocketゲートウェイ**: `wss://<backend-host>.onrender.com` *(双方向Pub/Subノード)*
-* 🗄️ **分散データベースノード**: TiDB Cloud Distributed MySQL Cluster (`ap-southeast-1` - シンガポール)
-* ⚡ **インメモリキャッシュ & Pub/Sub**: Upstash Redis Enterprise with TLS Encryption (`ap-southeast-1` - シンガポール)
-* 🛡️ **認証 & メディアストレージ**: Firebase Spark Infrastructure (Auth, Realtime DB, Storage Bucket, FCM)
+* 📝 **タイムラインと投稿 (Feed & Posts)**:
+  * テキスト、画像、ショート動画付きの投稿機能。
+  * 投稿内の `#hashtag`（ハッシュタグ）自動認識。
+  * いいね、返信（コメント）、リポスト機能。
+* 🔍 **検索と発見 (Search & Discovery)**:
+  * ユーザー名やキーワードによるリアルタイム検索。
+  * ハッシュタグ別フィード（「人気」と「最新」の並び替え対応）。
+* ⚡ **リアルタイムチャット (Realtime Chat)**:
+  * Socket.io による 1対1 のリアルタイムメッセージング（タイピング表示、オンライン状態）。
+  * 写真・動画の送信、投稿カードのダイレクト共有。
+* 👤 **プロフィール & ソーシャル**:
+  * アバター、自己紹介文の編集。
+  * フォロー / アンフォロー機能。
+  * ディープリンク（URL）によるプロフィールや投稿の直接共有。
+* 🔐 **認証とセキュリティ**:
+  * Google アカウント（Firebase Auth）またはメール/パスワードによるログイン。
+  * メール OTP（6桁コード）による安全なパスワード再設定。
+  * レート制限（Rate Limiting）とパスワードポリシー保護。
+* 🌐 **多言語対応 (i18n)**:
+  * **ベトナム語**、**英語**、**日本語** の3言語にシームレス対応。
 
 ---
 
-## 🏛️ 2. システム全体アーキテクチャ（System Architecture Overview）
-
-本システムは **Distributed Monolith Ready-to-Microservices** モデルを採用し、クライアント層、エッジ/ゲートウェイ層、アプリケーション層、インメモリ仲介層、永続データ層の責務を明確に分離しています。
+## 🏗️ 2. 基本アーキテクチャ (FE - BE)
 
 ```mermaid
-graph TD
-    subgraph ClientLayer ["1. クライアント層 - マルチプラットフォーム"]
-        WebClient["Flutter Web SPA<br/>(CanvasKit / HTML Engine)"]
-        MobileClient["Flutter Mobile<br/>(Android / iOS Impeller)"]
+graph LR
+    subgraph Client ["フロントエンド (Client)"]
+        FlutterApp["Flutter App<br/>(Mobile & Web)"]
     end
 
-    subgraph EdgeLayer ["2. エッジ & セキュリティゲートウェイ"]
-        CDN["Firebase Hosting CDN<br/>(エッジキャッシュ & 静的配信)"]
-        ReverseProxy["Cloud Ingress Gateway<br/>(SSL/TLS 1.3 終端)"]
-        CORS["CORS Dynamic Host Validator<br/>(オリジン検証 & モバイルバイパス)"]
+    subgraph ServerSide ["バックエンド (Server)"]
+        NodeServer["Node.js / Express Server<br/>(REST API & Socket.io)"]
+        DB[("MySQL Database<br/>(Prisma ORM)")]
+        RedisDB[("Redis<br/>(Socket.io Adapter)")]
+        FirebaseServ["Firebase<br/>(Auth & Storage)"]
     end
 
-    subgraph AppLayer ["3. バックエンドエンジン - Node.js & TypeScript"]
-        ExpressApp["Express.js 5.x REST Gateway<br/>(コントローラー、ミドルウェア、ルート)"]
-        SocketEngine["Socket.IO 4.x WebSocket Gateway<br/>(ルーム管理 & プレゼンスエンジン)"]
-        AuthGuard["Firebase Admin SDK<br/>(暗号署名JWTトークン検証)"]
-        PrismaEngine["Prisma 6.x ORM Query Engine<br/>(コネクションプール & ACIDトランザクション)"]
-    end
-
-    subgraph DataLayer ["4. 分散データ & メッセージブローカー層"]
-        RedisCluster[("Upstash Redis Cluster<br/>(Pub/Sub アダプター & セッション状態)")]
-        DistributedDB[("TiDB Cloud Serverless<br/>(分散リレーショナルMySQLエンジン)")]
-        MediaStorage[("Firebase Cloud Storage<br/>(暗号化マルチメディアCDNバケット)")]
-    end
-
-    WebClient -->|"HTTPS 静的ファイル"| CDN
-    WebClient -->|"HTTPS REST API / JSON"| ReverseProxy
-    MobileClient -->|"HTTPS REST API / JSON"| ReverseProxy
-    WebClient -->|"WSS / WebSocket トランスポート"| SocketEngine
-    MobileClient -->|"WSS / WebSocket トランスポート"| SocketEngine
-
-    ReverseProxy --> CORS
-    CORS --> ExpressApp
-
-    ExpressApp --> AuthGuard
-    SocketEngine --> AuthGuard
-
-    ExpressApp --> PrismaEngine
-    SocketEngine <-->|"クラスタ水平スケーリング & ルーム同期"| RedisCluster
-    PrismaEngine <-->|"コネクションプール / SSL Strict"| DistributedDB
-    WebClient -.->|"署名付き直接アップロード / ダウンロード"| MediaStorage
-    MobileClient -.->|"署名付き直接アップロード / ダウンロード"| MediaStorage
+    FlutterApp <-->|"HTTP REST API"| NodeServer
+    FlutterApp <-->|"WebSocket"| NodeServer
+    FlutterApp -.->|"認証 & メディア保存"| FirebaseServ
+    NodeServer <--> DB
+    NodeServer <--> RedisDB
+    NodeServer -.->|"トークン検証"| FirebaseServ
 ```
 
 ---
 
-## 📱 3. クライアントアーキテクチャ: App Flow & MVVMパターン
+## 💻 3. 技術スタック
 
-Flutterクライアントは **MVVM (Model - View - ViewModel)** パターン、**依存性の注入 (Dependency Injection)**、および単一方向の初期化パイプラインに従って構築されています：
+### 📱 フロントエンド (Flutter)
+* **フレームワーク**: [Flutter](https://flutter.dev/) (Dart) - 1つのコードベースで Web, iOS, Android に対応。
+* **状態管理**: `Provider` & `ChangeNotifier`。
+* **ディレクトリ構成 (`lib/`)**:
+  * `screens/`: 主要画面（ホーム、検索、投稿詳細、チャット、プロフィール等）。
+  * `widgets/`: 共通UIコンポーネント。
+  * `providers/`: ビジネスロジックと状態管理。
+  * `data/repositories/`: API 通信層。
+  * `models/`: データモデル定義。
 
-```mermaid
-flowchart LR
-    subgraph AppFlow ["アプリ初期化フロー (App Flow)"]
-        direction LR
-        APP("1. APP<br/>main.dart") --> ProvidersInit("2. Providers<br/>MultiProvider 登録")
-        ProvidersInit --> Material("3. Material App<br/>テーマ & 多言語")
-        Material --> Routes("4. Routes<br/>画面ルーティング")
-        Routes --> View("5. View<br/>Screens & Widgets")
-    end
-
-    subgraph MVVMArchitecture ["MVVM パターン & 依存性注入"]
-        direction LR
-        View -->|"状態の監視 / アクションのディスパッチ"| ProvidersVM("Providers<br/>View Model / ChangeNotifier")
-        Repo("Repository<br/>HTTP & Socket Client") -->|"依存性の注入 (DI)<br/>Constructor Injection"| ProvidersVM
-        Repo -->|"シリアライズ / デシリアライズ"| Model("Model<br/>エンティティ / DTO")
-        ProvidersVM -->|"notifyListeners() / UI再描画"| View
-    end
-
-    classDef blueBox fill:#1976D2,stroke:#0D47A1,stroke-width:2px,color:#fff;
-    classDef purpleBox fill:#673AB7,stroke:#311B92,stroke-width:2px,color:#fff;
-    class APP,ProvidersInit,Material,Routes,Repo blueBox;
-    class View,ProvidersVM,Model purpleBox;
-```
-
-### アーキテクチャの責務分離：
-1. **アプリ起動フロー (`App Flow`)**:
-   * `APP (main.dart)`: コアバインディングの初期化、Firebase SDKの起動、`AppConfig` からの環境変数読み込み。
-   * `Providers (MultiProvider)`: 全てのViewModel（`AuthProvider`, `HomeProvider`, `PostProvider`, `MessageProvider`, `NotificationProvider`）のインスタンス生成と集中管理。
-   * `Material App`: デザイントークン、カラースキーム、フォント、グローバルナビゲーターの登録。
-   * `Routes`: 画面遷移（Named Routes）の型安全なハンドリング。
-   * `View`: UIの宣言的描画を担当。
-2. **MVVM & 依存性の注入 (DI)**:
-   * **View**: `Consumer` や `context.watch()` により状態を監視し、`context.read()` でユーザー操作を発火。
-   * **View Model (`Providers`)**: ドメイン状態を保持し、`notifyListeners()` を通じて必要なウィジェットのみを差分再描画。
-   * **Dependencies Injection (DI)**: 独立した `Repository` クラスを各Providerのコンストラクタ経由で注入し、ネットワーク層とロジック層を完全疎結合化。
-   * **Model**: 双方向JSON変換をサポートする不変（Immutable）データモデル。
+### 🖥️ バックエンド (Node.js & TypeScript)
+* **実行環境**: [Node.js](https://nodejs.org/) + **TypeScript**。
+* **Web フレームワーク**: [Express.js](https://expressjs.com/)。
+* **リアルタイム通信**: [Socket.IO](https://socket.io/)。
+* **データベース**:
+  * **MySQL**: ユーザー、投稿、メッセージなどのメインデータ保存。
+  * **Prisma ORM**: データベーススキーマとクエリ管理。
+  * **Redis**: Socket.io のリアルタイム通信アダプター。
 
 ---
 
-## ⚙️ 4. サーバー内部構造 & リクエストパイプライン
+## 🚀 4. ローカル起動方法 (Local Setup)
 
-Node.js/TypeScriptバックエンドは、**ミドルウェアパイプライン** および **Controller-Service-Repository-ORM** の階層化アーキテクチャを採用しています：
-
-```mermaid
-flowchart TD
-    subgraph ClientReq ["クライアントイングレス"]
-        HTTPReq["HTTP リクエスト (REST API)"]
-        WSReq["WSS 接続 (WebSocket)"]
-    end
-
-    subgraph SecurityPipeline ["1. セキュリティ & ミドルウェアパイプライン"]
-        CORS["CORS Dynamic Host Validator<br/>(オリジン検証 & モバイルバイパス)"]
-        Helmet["Helmet セキュリティヘッダー<br/>(HSTS, クリックジャッキング, XSS保護)"]
-        Logger["Morgan ロガー & Express JSON パーサー"]
-        AuthGuard["AuthGuard ミドルウェア<br/>(Firebase Admin SDK verifyIdToken)"]
-    end
-
-    subgraph RouterLayer ["2. Express ルーティング層"]
-        AuthRouter["/api/auth (authRoutes.ts)"]
-        PostRouter["/api/posts (postRoutes.ts)"]
-        UserRouter["/api/users (userRoutes.ts)"]
-        MsgRouter["/api/messages (messageRoutes.ts)"]
-        NotiRouter["/api/notifications (notificationRoutes.ts)"]
-    end
-
-    subgraph ControllerLayer ["3. コントローラー層 (ビジネスロジック)"]
-        AuthCtrl["authController.ts"]
-        PostCtrl["postController.ts"]
-        UserCtrl["userController.ts"]
-        MsgCtrl["messageController.ts"]
-        NotiCtrl["notificationController.ts"]
-    end
-
-    subgraph RealtimeSubsystem ["4. リアルタイム Socket.IO サブシステム"]
-        SocketGateway["Socket.IO サーバー (socket.ts)"]
-        SocketAuth["ハンドシェイクトークン検証"]
-        RoomManager["ルーム & プレゼンスマネージャー<br/>(user_{id}, conversation_{id})"]
-        RedisAdapter["@socket.io/redis-adapter<br/>(クラスタ同期)"]
-    end
-
-    subgraph PersistenceLayer ["5. 永続データ & インメモリストレージ"]
-        PrismaORM["Prisma 6.x ORM エンジン<br/>(コネクションプール & $transaction)"]
-        TiDBDB[("TiDB Cloud 分散リレーショナルMySQL<br/>(Users, Posts, Messages, Counts)")]
-        UpstashRedis[("Upstash Redis クラスタ (TLS)<br/>(Pub/Sub チャンネル & セッション状態)")]
-    end
-
-    HTTPReq --> CORS
-    CORS --> Helmet
-    Helmet --> Logger
-    Logger --> AuthGuard
-
-    AuthGuard --> AuthRouter
-    AuthRouter --> AuthCtrl
-
-    AuthGuard --> PostRouter
-    PostRouter --> PostCtrl
-
-    AuthGuard --> UserRouter
-    UserRouter --> UserCtrl
-
-    AuthGuard --> MsgRouter
-    MsgRouter --> MsgCtrl
-
-    AuthGuard --> NotiRouter
-    NotiRouter --> NotiCtrl
-
-    WSReq --> SocketGateway
-    SocketGateway <--> SocketAuth
-    SocketGateway <--> RoomManager
-    RoomManager <--> RedisAdapter
-    RedisAdapter <-->|"Redis Protocol SSL"| UpstashRedis
-
-    AuthCtrl --> PrismaORM
-    PostCtrl --> PrismaORM
-    UserCtrl --> PrismaORM
-    MsgCtrl --> PrismaORM
-    NotiCtrl --> PrismaORM
-    RoomManager -.->|"メッセージ & ステータス保存"| PrismaORM
-    PrismaORM <-->|"MySQL Protocol - Strict SSL"| TiDBDB
-```
+### 前提条件:
+* [Flutter SDK](https://docs.flutter.dev/get-started/install) (3.x 以上)
+* [Node.js](https://nodejs.org/) (v18 以上)
+* ローカルで稼働している MySQL および Redis
 
 ---
 
-## 🛠️ 5. 技術選定理由（Technology Stack & Technical Rationale）
-
-| レイヤー | 採用技術 | 技術選定の理由・優位性（Engineering Rationale） |
-| :--- | :--- | :--- |
-| **Frontend Framework** | **Flutter 3.x (Dart)** | 単一コードベース（Single Codebase）でWeb・Android・iOSを展開。Impeller/CanvasKitによる60〜120 FPSの高品位レンダリング。 |
-| **State Management** | **Provider + ChangeNotifier** | ビジネスロジックをUIから完全に分離するリアクティブステート管理。Selectorパターンによる局所的再描画の最小化。 |
-| **Backend Runtime** | **Node.js (v20+) + TypeScript** | ノンブロッキングI/Oイベントループにより大量の同時接続を処理。`NodeNext` ESM準拠の厳格な型安全性。 |
-| **REST Framework** | **Express.js 5.x** | ルーティング性能向上とミドルウェア内でのネイティブPromiseサポートによる未補足例外の防止。 |
-| **ORM Framework** | **Prisma 6.x** | スキーマから自動生成される完全な型安全クエリクライアント。ネストされた書き込みにおけるACIDトランザクション（`$transaction`）の保証。 |
-| **Relational Database** | **TiDB Cloud (Distributed MySQL)** | 100% MySQLプロトコル互換のサーバーレス分散DB。負荷に応じた自動スケールと単一障害点（SPOF）の排除。 |
-| **Realtime Gateway** | **Socket.IO 4.x + Redis Adapter** | 双方向WebSocketとRedis Pub/Subを統合し、複数サーバーノード間でのリアルタイム通信の同期・水平スケーリングを実現。 |
-| **In-Memory Store** | **Upstash Redis (TLS Protocol)** | マイクロ秒単位の低遅延メッセージング。`rediss://`によるSSL暗号化通信の義務付け。 |
-| **Identity & Security** | **Firebase Auth + Admin SDK** | ハイブリッド認証：クライアント側での迅速なOAuth/パスワードレスログインと、サーバー側でのGoogle公開鍵によるJWT暗号署名検証。 |
-
----
-
-## 📁 6. ディレクトリ構成（Project Directory Structure）
-
-```text
-Thread-City-/
-├── lib/                                    # Flutterクライアントソースコード（Web & Mobile）
-│   ├── auth/                               # 認証・登録画面
-│   ├── core/
-│   │   ├── config/
-│   │   │   └── app_config.dart             # コンパイル時環境変数注入（String.fromEnvironment）
-│   │   └── theme/                          # タイポグラフィ、カラートークン、テーマ定義
-│   ├── data/
-│   │   ├── models/                         # DTO（Data Transfer Objects）：User, Post, Message等
-│   │   └── repositories/                   # ネットワーク通信・API抽象化レイヤー
-│   ├── providers/                          # 状態管理・ビジネスロジック層（ChangeNotifier）
-│   ├── screens/                            # メイン画面ビュー（Home, Search, Chat, Profile, Activity）
-│   ├── services/                           # バックグラウンドサービス（SocketService, ImageUpload, FCM）
-│   └── widgets/                            # 再利用可能UIコンポーネント（PostCard, BouncyTap, VideoWidget）
-│
-├── server/                                 # バックエンドエンジンソースコード（Node.js + TypeScript）
-│   ├── prisma/
-│   │   ├── schema.prisma                   # データベーススキーマの単一の真実源（Single Source of Truth）
-│   │   ├── migrations/                     # バージョン管理されたマイグレーション履歴
-│   │   └── seed.ts                         # 初期シードデータ投入スクリプト
-│   ├── src/
-│   │   ├── config/
-│   │   │   └── cors.ts                     # 動的CORSホワイトリスト & モバイルバイパス
-│   │   ├── controllers/                    # リクエスト処理・ビジネスロジック
-│   │   ├── middlewares/                    # 認証トークン検証・ルートガード
-│   │   ├── routes/                         # RESTful APIエンドポイント定義
-│   │   ├── services/
-│   │   │   ├── firebaseService.ts          # Firebase Admin SDK初期化（マルチ環境対応）
-│   │   │   └── redisService.ts             # Redis接続・ユーティリティ
-│   │   ├── socket.ts                       # Socket.IOサーバー、Redisアダプター、ルーム管理
-│   │   └── index.ts                        # サーバーエントリーポイント & HTTP/Socket統合
-│   ├── Dockerfile                          # マルチステージビルド本番用コンテナ定義（Alpine Linux）
-│   ├── docker-compose.prod.yml             # 本番用Dockerスタック定義
-│   ├── package.json                        # 依存関係マニフェスト & ビルドスクリプト
-│   └── tsconfig.json                       # TypeScriptコンパイラ設定（ES2022, NodeNext）
-│
-├── web/                                    # Web SPA設定（index.html, Service Workers, Manifest）
-└── firebase.json                           # Firebase Hosting設定 & SPAリライトルール
-```
+### ステップ 1: バックエンドの起動
+1. `server` ディレクトリに移動してパッケージをインストール:
+   ```bash
+   cd server
+   npm install
+   ```
+2. `.env` ファイルを作成:
+   ```env
+   PORT=3000
+   DATABASE_URL="mysql://root:password@localhost:3306/thread_city"
+   REDIS_URL="redis://localhost:6379"
+   SMTP_USER="your_email@gmail.com"
+   SMTP_PASS="your_google_app_password"
+   ```
+3. スキーマの同期とサーバー起動:
+   ```bash
+   npx prisma db push
+   npm run dev
+   ```
 
 ---
 
-## 🗄️ 7. データベース設計とデータモデリング（Data Modeling & ERD）
-
-```mermaid
-erDiagram
-    users ||--o{ posts : "creates"
-    users ||--o{ likes : "likes"
-    users ||--o{ reposts : "reposts"
-    users ||--o{ follows : "follows"
-    users ||--o{ blocks : "blocks"
-    users ||--o{ notifications : "receives_or_triggers"
-    users ||--o{ conversations : "participant"
-    conversations ||--o{ messages : "contains"
-    posts ||--o{ posts : "replies_to_parent"
-    posts ||--o| post_counts : "denormalized_counters"
-    posts ||--o{ post_media : "contains_media"
-    posts ||--o{ post_hashtags : "tagged_with"
-    hashtags ||--o{ post_hashtags : "categorizes"
-
-    users {
-        int id PK
-        string firebase_uid UK
-        string username UK
-        string email UK
-        string nickname
-        string bio
-        string avatar_url
-        boolean is_verified
-        string status
-        string fcm_token
-        timestamp created_at
-        timestamp updated_at
-    }
-
-    posts {
-        int id PK
-        int user_id FK
-        int parent_id FK
-        text content
-        string type
-        timestamp created_at
-        timestamp updated_at
-        timestamp deleted_at
-    }
-
-    post_counts {
-        int post_id PK, FK
-        int like_count
-        int comment_count
-        int repost_count
-    }
-
-    post_media {
-        int id PK
-        int post_id FK
-        string media_url
-        string media_type
-        int order_index
-    }
-
-    likes {
-        int id PK
-        int user_id FK
-        int post_id FK
-        timestamp created_at
-    }
-
-    reposts {
-        int id PK
-        int user_id FK
-        int post_id FK
-        timestamp created_at
-    }
-
-    follows {
-        int follower_id PK, FK
-        int following_id PK, FK
-        timestamp created_at
-    }
-
-    conversations {
-        int id PK
-        int user1_id FK
-        int user2_id FK
-        timestamp updated_at
-    }
-
-    messages {
-        int id PK
-        int conversation_id FK
-        int sender_id FK
-        text content
-        boolean is_read
-        timestamp created_at
-    }
-```
-
----
-
-## ⚡ 8. リアルタイム通信と分散Pub/Subプロトコル
-
-```mermaid
-sequenceDiagram
-    autonumber
-    actor Alice as クライアント A (Alice)
-    participant Edge as WSSゲートウェイ (Node.js)
-    participant Redis as Redisクラスタ (Upstash Pub/Sub)
-    participant DB as TiDB リレーショナルDB
-    actor Bob as クライアント B (Bob)
-
-    Note over Alice, Edge: 1. ハンドシェイク & トークン認証
-    Alice->>Edge: WSS接続リクエスト (auth: { token: "Firebase_ID_Token" })
-    Edge->>Edge: Firebase Admin SDK verifyIdToken(token)
-    Edge->>DB: firebase_uidによるユーザー検索
-    Edge-->>Alice: 接続承認 (socket.id 割り当て)
-    Edge->>Edge: 個別ルームへ参加: user_{alice_id}
-    Edge->>Redis: イベント発行: user_status { userId: Alice, isOnline: true }
-    Redis-->>Bob: オンライン通知受信
-
-    Note over Alice, Bob: 2. リアルタイムダイレクトメッセージング
-    Alice->>Edge: イベント送信: join_conversation (conversationId: 42)
-    Edge->>DB: 会話の参加権限を検証
-    Edge->>Edge: ルーム参加: conversation_42
-    Alice->>Edge: イベント送信: typing { conversationId: 42 }
-    Edge->>Bob: 入力中表示イベント: user_typing
-
-    Alice->>Edge: イベント送信: send_message { conversationId: 42, text: "こんにちは" }
-    Edge->>DB: Prismaトランザクション：メッセージ永続化
-    Edge->>Redis: Redisチャンネルへ発行: conversation_42
-    Redis-->>Edge: ルーム接続中の全ノードへブロードキャスト
-    Edge-->>Bob: メッセージ着信: receive_message { id: 101, content: "こんにちは" }
-```
-
----
-
-## 🔒 9. セキュリティアーキテクチャ & ネットワークガバナンス
-
-1. **ハイブリッド二重認証 & ゼロトラスト（Zero-Trust Authentication）**:
-   * クライアントはFirebase Authenticationで認証し、RS256暗号化されたID Tokenを取得。
-   * バックエンドは **Firebase Admin SDK** を用いてGoogle公開鍵サーバーと暗号学的改ざんを検証。
-   * **ゼロトラスト & Anti-IDOR**: ユーザーUIDは検証済みJWTから直接取得（`req.user.firebaseUid`）し、リクエストボディ内のUIDを盲信しない設計によりなりすましを完全防止。
-2. **多層レートリミッター（Multi-Tier Rate Limiting）**:
-   * `express-rate-limit` によるスクレイピング・DoS攻撃遮断：
-     * **Global Gateway Limiter**: IPごとに最大 300 requests / 15分。
-     * **Post Creation Limiter**: 最大 10 投稿 / 1分（投稿スパム防止）。
-     * **Search & Discovery Limiter**: 最大 30 クエリ / 1分（全文検索インデックス保護）。
-     * **Auth & Sync Limiter**: 最大 20 requests / 15分（アカウント同期ブルートフォース防止）。
-   * `trust proxy: 1` 設定により、Cloudリバースプロキシ配下でもクライアントの実IPを正確に特定。
-3. **動的CORSホワイトリストエンジン**:
-   * 公式フロントエンド（`https://thread-b4d7b.web.app`）を厳格にホワイトリスト化。
-   * モバイルネイティブ通信（`Origin` ヘッダーが未定義または `null`）を透過。
-   * OPTIONSプリフライトリクエストにおける `Content-Type`, `Authorization`, `ngrok-skip-browser-warning` を許可。
-
----
-
-## 📡 10. RESTful API 仕様一覧
-
-> 💡 **セキュリティ規約**: すべての更新系エンドポイント（`POST`, `PATCH`, `DELETE`）は `Authorization: Bearer <Firebase_ID_Token>` ヘッダーが必須です。
-
-### 認証モジュール (`/api/auth`) — *(レート制限: 20 req / 15分)*
-| メソッド | エンドポイント | ヘッダー / ボディ | 機能概要 |
-| :--- | :--- | :--- | :--- |
-| `POST` | `/api/auth/register` | ボディ: `{ firebase_uid, email, username, nickname }` | ユーザー登録およびMySQLへのプロファイル同期 |
-| `GET` | `/api/auth/by-uid/:uid` | パラメータ: `uid` (Firebase UID) | Firebase UIDに基づくユーザー情報の照会 |
-
-### 投稿・フィードモジュール (`/api/posts`)
-| メソッド | エンドポイント | ヘッダー / パラメータ | 機能概要 |
-| :--- | :--- | :--- | :--- |
-| `GET` | `/api/posts` | クエリ: `?firebase_uid=...&following=true/false` | フィード一覧の取得 *(Global Limit: 300 req/15分)* |
-| `POST` | `/api/posts` | `Bearer Token`<br>ボディ: `{ content, parent_id, type, media }` | 投稿作成・返信 *(Strict Limit: 10 req/1分, JWTからUID取得)* |
-| `GET` | `/api/posts/:id/replies` | パラメータ: `id` (投稿ID) | 指定投稿に紐づく返信スレッドの取得 |
-| `POST` | `/api/posts/:id/like` | `Bearer Token` | いいね状態の原子的切り替え *(JWTからUID取得)* |
-| `POST` | `/api/posts/:id/repost` | `Bearer Token` | リポスト状態の原子的切り替え *(JWTからUID取得)* |
-| `GET` | `/api/posts/user/:uid` | パラメータ: `uid`, クエリ: `?viewer_uid=...` | 指定ユーザーの投稿一覧取得 |
-
-### 検索・発見モジュール (`/api/search`) — *(レート制限: 30 req / 1分)*
-| メソッド | エンドポイント | クエリ / パラメータ | 機能概要 |
-| :--- | :--- | :--- | :--- |
-| `GET` | `/api/search` | クエリ: `?q=...&type=posts\|users\|hashtags&viewer_uid=...` | ハイブリッドスコアリング統合検索 |
-| `GET` | `/api/search/hashtags/:tag/posts` | パラメータ: `tag`, クエリ: `?viewer_uid=...` | ハッシュタグ別投稿一覧の取得 |
-
-### ユーザー・ソーシャルグラフ (`/api/users`)
-| メソッド | エンドポイント | ヘッダー / パラメータ | 機能概要 |
-| :--- | :--- | :--- | :--- |
-| `GET` | `/api/users/:firebase_uid` | クエリ: `?viewer_uid=...` | ユーザープロファイル・フォロワー数の取得 |
-| `PATCH` | `/api/users/:firebase_uid` | `Bearer Token`<br>ボディ: `{ username?, nickname?, bio?, avatar_url? }` | プロファイル更新 *(Anti-IDOR: 本人のみ)* |
-| `POST` | `/api/users/follow` | `Bearer Token`<br>ボディ: `{ following_uid }` | ユーザーのフォロー実行 *(JWTからUID取得)* |
-| `POST` | `/api/users/unfollow` | `Bearer Token`<br>ボディ: `{ following_uid }` | ユーザーのフォロー解除 *(JWTからUID取得)* |
-| `GET` | `/api/users/:userId/followers` | パラメータ: `userId` | フォロワー一覧の取得 |
-| `GET` | `/api/users/:userId/following` | パラメータ: `userId` | フォロー中ユーザー一覧の取得 |
-
-### メッセージ & 通知 (`/api/messages`, `/api/notifications`)
-| メソッド | エンドポイント | 必要条件 | 機能概要 |
-| :--- | :--- | :--- | :--- |
-| `GET` | `/api/messages/conversations` | `Bearer Token` | 会話スレッド一覧の取得 |
-| `GET` | `/api/messages/:conversationId` | `Bearer Token` | 特定の会話内のメッセージ履歴取得 |
-| `GET` | `/api/notifications` | `?firebase_uid=...` | アクション通知一覧の取得 |
-
----
-
-## ⚡ 11. パフォーマンス最適化 & 高負荷対策
-
-1. **Keep-Alive Cloud Daemon**:
-   * [cron-job.org](https://cron-job.org/) を利用し、10分間隔で `HEAD /` に対する自動Pingを実行。インスタンススリープを完全防止。
-2. **Service Worker によるメディアストリーミング最適化**:
-   * `web/media_sw.js` により、HTTP 206 Byte-Rangeリクエスト（動画再生）をブラウザCache APIをバイパスして直接転送。`ERR_CACHE_OPERATION_NOT_SUPPORTED` を根絶。
-3. **データベースコネクションプーリング**:
-   * Prisma EngineによるTCP Keep-AliveおよびSSL Strict接続プールの維持。
-
----
-
+### ステップ 2: フロントエンドの起動
+1. プロジェクトルートで以下を実行:
+   ```bash
+   flutter pub get
+   ```
+2. Web ブラウザで起動:
+   ```bash
+   flutter run -d chrome
+   ```

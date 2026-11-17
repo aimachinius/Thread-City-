@@ -1,518 +1,132 @@
-# 🧵🏙️ Thread City - Scalable Realtime Social Network Engine & Multi-Platform Client
+# 🧵 Thread City - Ứng dụng Mạng Xã Hội Đa Nền Tảng
 
-[Tiếng Việt](README.md) • [English](README.en.md) • [日本語](README.ja.md)
+> **Thread City** là ứng dụng mạng xã hội (tương tự Threads / X) được phát triển bằng **Flutter** (Frontend) và **Node.js / Express** (Backend), hỗ trợ hoạt động mượt mà trên cả **Mobile (Android/iOS)** và **Web**. Ứng dụng cung cấp trải nghiệm chia sẻ bài viết, tương tác cộng đồng và trò chuyện thời gian thực (Realtime Chat).
 
----
-
-> **Thread City** là một nền tảng mạng xã hội Micro-Blogging phân tán đa nền tảng (Web SPA & Mobile Native), được xây dựng với mục tiêu chịu tải cao, giao tiếp thời gian thực (Realtime), độ trễ thấp và tính nhất quán dữ liệu nghiêm ngặt. Hệ thống áp dụng các tiêu chuẩn kỹ thuật cấp doanh nghiệp: Kiến trúc phân lớp (Layered Architecture), Cơ chế bộ đệm phi chuẩn hóa (Denormalized Counter Cache), Động cơ Realtime chịu tải phân tán qua Redis Pub/Sub, và Hệ thống xác thực kết hợp (Hybrid Authentication).
+🌐 **Trải nghiệm trực tiếp bản Web**: [https://thread-b4d7b.web.app](https://thread-b4d7b.web.app)
 
 ---
 
-## 🌐 1. Live Production System
+## ✨ 1. Tính năng nổi bật
 
-Hệ thống hiện đã được triển khai hoàn chỉnh và đang vận hành trực tuyến 24/7 độc lập trên hạ tầng Cloud:
-
-* 🖥️ **Web Application (Production Client)**: [https://thread-b4d7b.web.app](https://thread-b4d7b.web.app)
-* ⚡ **Core Backend API Gateway (Cloud Engine)**: `https://<backend-host>.onrender.com` *(Protected Instance - Rate Limited & Zero-Trust Auth)*
-* 🔌 **Realtime WebSocket Gateway**: `wss://<backend-host>.onrender.com` *(Stateful Bi-directional Pub/Sub Node)*
-* 🗄️ **Distributed Database Node**: TiDB Cloud Distributed MySQL Cluster (`ap-southeast-1` - Singapore)
-* ⚡ **In-Memory Cache & Pub/Sub Cluster**: Upstash Redis Enterprise with TLS Encryption (`ap-southeast-1` - Singapore)
-* 🛡️ **Identity & Media Storage**: Firebase Spark Infrastructure (Auth, Realtime DB, Storage Bucket, FCM)
+* 📝 **Bảng tin & Đăng bài (Feed & Posts)**:
+  * Đăng bài viết chia sẻ suy nghĩ, hỗ trợ đính kèm hình ảnh hoặc video.
+  * Tự động nhận diện và gắn thẻ `#hashtag` trong nội dung.
+  * Tương tác xã hội: Thích (Like), bình luận (Reply), chia sẻ lại (Repost).
+* 🔍 **Tìm kiếm & Khám phá (Search & Discovery)**:
+  * Tìm kiếm người dùng và bài viết theo từ khóa nhanh chóng.
+  * Khám phá bảng tin theo từng hashtag với 2 chế độ sắp xếp: **Nổi bật (Top)** và **Mới nhất (Recent)**.
+* ⚡ **Trò chuyện thời gian thực (Realtime Chat)**:
+  * Nhắn tin 1-1 tức thì qua Socket.io: Hiển thị trạng thái đang gõ (typing), trạng thái online/offline.
+  * Gửi hình ảnh, video và chia sẻ trực tiếp liên kết bài viết vào phòng chat.
+* 👤 **Hồ sơ cá nhân & Kết nối**:
+  * Chỉnh sửa thông tin cá nhân, cập nhật ảnh đại diện (avatar) và tiểu sử (bio).
+  * Theo dõi (Follow / Unfollow) người dùng khác.
+  * Chia sẻ trang cá nhân hoặc bài viết thông qua liên kết (Deep link).
+* 🔐 **Tài khoản & Bảo mật**:
+  * Đăng nhập tiện lợi bằng tài khoản Google (Firebase Auth) hoặc tài khoản Email/Mật khẩu.
+  * Quên mật khẩu: Nhận mã xác thực OTP qua Email để đặt lại mật khẩu an toàn.
+  * Quy tắc bảo vệ mật khẩu và giới hạn tần suất yêu cầu (Rate Limiting).
+* 🌐 **Đa ngôn ngữ (i18n)**:
+  * Hỗ trợ chuyển đổi nhanh giữa 3 ngôn ngữ: **Tiếng Việt**, **Tiếng Anh (English)** và **Tiếng Nhật (日本語)**.
 
 ---
 
-## 🏛️ 2. High-Level System Architecture
+## 🏗️ 2. Kiến trúc cơ bản của ứng dụng (FE - BE)
 
-Hệ thống được thiết kế theo mô hình **Distributed Monolith Ready-to-Microservices**, phân tách rõ ràng trách nhiệm giữa Client, Edge/Gateway, Application Server, In-memory Broker và Persistent Storage.
+Hệ thống được tổ chức phân tách rõ ràng giữa tầng Giao diện (Client) và tầng Máy chủ (Backend):
 
 ```mermaid
-graph TD
-    subgraph ClientLayer ["1. Client Layer - Cross Platform"]
-        WebClient["Flutter Web SPA<br/>(CanvasKit / HTML Engine)"]
-        MobileClient["Flutter Mobile<br/>(Android / iOS Impeller)"]
+graph LR
+    subgraph Client ["Frontend (Client)"]
+        FlutterApp["Flutter App<br/>(Mobile & Web)"]
     end
 
-    subgraph EdgeLayer ["2. Edge & Security Gateway"]
-        CDN["Firebase Hosting CDN<br/>(Edge Caching & Static Assets)"]
-        ReverseProxy["Cloud Ingress Gateway<br/>(SSL/TLS 1.3 Termination)"]
-        CORS["CORS Dynamic Host Validator<br/>(Origin Whitelist & Null-bypass)"]
+    subgraph ServerSide ["Backend (Server)"]
+        NodeServer["Node.js / Express Server<br/>(REST API & Socket.io)"]
+        DB[("MySQL Database<br/>(Prisma ORM)")]
+        RedisDB[("Redis<br/>(Socket.io Adapter)")]
+        FirebaseServ["Firebase<br/>(Auth & Storage)"]
     end
 
-    subgraph AppLayer ["3. Backend Application Engine - Node.js & TypeScript"]
-        ExpressApp["Express.js 5.x REST Gateway<br/>(Controllers, Middlewares, Routes)"]
-        SocketEngine["Socket.IO 4.x WebSocket Gateway<br/>(Room Management & Presence Engine)"]
-        AuthGuard["Firebase Admin SDK<br/>(Decoded JWT Token Validator)"]
-        PrismaEngine["Prisma 6.x ORM Query Engine<br/>(Connection Pooling & ACID Transactions)"]
-    end
-
-    subgraph DataLayer ["4. Distributed Persistence & Pub/Sub Layer"]
-        RedisCluster[("Upstash Redis Cluster<br/>(Pub/Sub Adapter & In-Memory State)")]
-        DistributedDB[("TiDB Cloud Serverless<br/>(Distributed Relational MySQL Engine)")]
-        MediaStorage[("Firebase Cloud Storage<br/>(Encrypted Multimedia CDN Bucket)")]
-    end
-
-    WebClient -->|"HTTPS Static Assets"| CDN
-    WebClient -->|"HTTPS REST API / JSON"| ReverseProxy
-    MobileClient -->|"HTTPS REST API / JSON"| ReverseProxy
-    WebClient -->|"WSS / WebSocket Transport"| SocketEngine
-    MobileClient -->|"WSS / WebSocket Transport"| SocketEngine
-
-    ReverseProxy --> CORS
-    CORS --> ExpressApp
-
-    ExpressApp --> AuthGuard
-    SocketEngine --> AuthGuard
-
-    ExpressApp --> PrismaEngine
-    SocketEngine <-->|"Cluster Horizontal Scaling & Rooms"| RedisCluster
-    PrismaEngine <-->|"Connection Pool / SSL Strict"| DistributedDB
-    WebClient -.->|"Direct Signed Upload / Download"| MediaStorage
-    MobileClient -.->|"Direct Signed Upload / Download"| MediaStorage
+    FlutterApp <-->|"HTTP REST API"| NodeServer
+    FlutterApp <-->|"WebSocket"| NodeServer
+    FlutterApp -.->|"Đăng nhập & Tải ảnh"| FirebaseServ
+    NodeServer <--> DB
+    NodeServer <--> RedisDB
+    NodeServer -.->|"Xác thực Token"| FirebaseServ
 ```
 
 ---
 
-## 📱 3. Client Architecture: App Flow & MVVM Pattern
+## 💻 3. Chi tiết công nghệ sử dụng
 
-Ứng dụng Flutter được tổ chức theo kiến trúc **MVVM (Model - View - ViewModel)** kết hợp kỹ thuật tiêm phụ thuộc **Dependency Injection (DI)** và luồng khởi tạo ứng dụng phân cấp một chiều:
+### 📱 Frontend (Flutter)
+* **Ngôn ngữ & Framework**: [Flutter](https://flutter.dev/) (Dart) - Viết một lần chạy trên cả Android, iOS và Web.
+* **Quản lý trạng thái (State Management)**: `Provider` & `ChangeNotifier`.
+* **Cấu trúc mã nguồn (`lib/`)**:
+  * `screens/`: Các màn hình chính (Trang chủ, Tìm kiếm, Chi tiết bài viết, Chat, Hồ sơ cá nhân,...).
+  * `widgets/`: Các thành phần giao diện tái sử dụng (PostCard, ReplySheet, AppTextField,...).
+  * `providers/`: Xử lý trạng thái và logic hiển thị (HomeProvider, SearchProvider, MessageProvider,...).
+  * `data/repositories/`: Tầng giao tiếp mạng, gọi API tới Backend.
+  * `models/`: Định nghĩa các đối tượng dữ liệu (User, Post, Message, Hashtag,...).
+* **Kết nối**: `http` cho các API dữ liệu và `socket_io_client` cho luồng chat thời gian thực.
 
-```mermaid
-flowchart LR
-    subgraph AppFlow ["App Initialization Flow"]
-        direction LR
-        APP("1. APP<br/>main.dart") --> ProvidersInit("2. Providers<br/>MultiProvider Registration")
-        ProvidersInit --> Material("3. Material App<br/>Theme & Localization")
-        Material --> Routes("4. Routes<br/>Navigation Routing")
-        Routes --> View("5. View<br/>Screens & Widgets")
-    end
-
-    subgraph MVVMArchitecture ["Model - View - ViewModel Pattern"]
-        direction LR
-        View -->|"Observes State / Dispatches Actions"| ProvidersVM("Providers<br/>View Model / ChangeNotifier")
-        Repo("Repository<br/>HTTP & Socket Client") -->|"Dependencies Injection<br/>Constructor Injection"| ProvidersVM
-        Repo -->|"Serializes / Deserializes"| Model("Model<br/>Data Entities / DTOs")
-        ProvidersVM -->|"notifyListeners() / UI Rebuild"| View
-    end
-
-    classDef blueBox fill:#1976D2,stroke:#0D47A1,stroke-width:2px,color:#fff;
-    classDef purpleBox fill:#673AB7,stroke:#311B92,stroke-width:2px,color:#fff;
-    class APP,ProvidersInit,Material,Routes,Repo blueBox;
-    class View,ProvidersVM,Model purpleBox;
-```
-
-### Chi tiết luồng vận hành (Execution Flow):
-1. **Khởi tạo (`App Flow`)**:
-   * `APP (main.dart)`: Điểm nhập (Entry point) khởi động các bindings lõi, đăng ký Firebase Client SDK và tải cấu hình động từ `AppConfig`.
-   * `Providers (MultiProvider)`: Nơi tập trung khởi tạo toàn bộ các ViewModels (`AuthProvider`, `HomeProvider`, `PostProvider`, `MessageProvider`, `NotificationProvider`).
-   * `Material App`: Thiết lập Design System, Typography, Color Palette và Root Navigator.
-   * `Routes`: Quản lý điều hướng màn hình an toàn (Named Routes / Screen Routing).
-   * `View`: Các widget hiển thị thuần túy (Scaffold, Screens, Cards) chỉ chịu trách nhiệm vẽ giao diện.
-
-2. **Mô hình tương tác (`MVVM & Dependency Injection`)**:
-   * **View**: Đăng ký lắng nghe dữ liệu từ `Providers` (`context.watch()`, `Consumer`) và kích hoạt hành động người dùng (`context.read()`).
-   * **View Model (`Providers`)**: Nắm giữ trạng thái nghiệp vụ (State), điều phối luồng dữ liệu và phát tín hiệu `notifyListeners()` để View cập nhật lại đúng Widget cần thiết mà không render lại toàn bộ màn hình.
-   * **Dependencies Injection (DI)**: Các tầng `Repository` độc lập (`AuthRepository`, `PostRepository`,...) được tiêm thẳng vào Constructor của từng Provider, tách biệt hoàn toàn tầng logic khỏi tầng mạng (Network).
-   * **Model**: Các Data Transfer Objects (DTOs) bất biến (`User`, `Post`, `Message`, `Conversation`) hỗ trợ serialization/deserialization JSON hai chiều.
+### 🖥️ Backend (Node.js & TypeScript)
+* **Nền tảng**: [Node.js](https://nodejs.org/) sử dụng **TypeScript** đảm bảo code an toàn và dễ bảo trì.
+* **Web Framework**: [Express.js](https://expressjs.com/) xây dựng các RESTful API.
+* **Realtime Engine**: [Socket.IO](https://socket.io/) quản lý phòng chat, gửi nhận tin nhắn thời gian thực.
+* **Cơ sở dữ liệu**:
+  * **MySQL**: Cơ sở dữ liệu chính lưu trữ tài khoản, bài viết, tin nhắn, tương tác.
+  * **Prisma ORM**: Quản lý bảng dữ liệu (Schema) và thực hiện các câu truy vấn an toàn.
+  * **Redis**: Hỗ trợ điều phối tin nhắn Socket.io giữa các client.
+* **Cấu trúc mã nguồn (`server/src/`)**:
+  * `controllers/`: Tiếp nhận và xử lý logic cho từng tính năng.
+  * `routes/`: Khai báo các đường dẫn API (`/api/auth`, `/api/posts`, `/api/messages`, `/api/search`,...).
+  * `middlewares/`: Xác thực danh tính người dùng và giới hạn số lần gọi API (Rate Limiter).
+  * `services/`: Tích hợp Firebase Admin (xác thực token) và Nodemailer (gửi email OTP).
+  * `socket.ts`: Thiết lập và quản lý các sự kiện Socket.io.
 
 ---
 
-## ⚙️ 4. Server Internal Architecture & Request Pipeline
+## 🚀 4. Hướng dẫn chạy thử dự án tại máy (Local Setup)
 
-Kiến trúc nội tại của Backend Server (Node.js + Express + TypeScript) được tổ chức theo đường ống dẫn xử lý yêu cầu (**Middleware Request Pipeline**) và phân tách theo mô hình **Controller-Service-Repository-ORM Layer**:
-
-```mermaid
-flowchart TD
-    subgraph ClientReq ["Client Ingress"]
-        HTTPReq["HTTP Request (REST API)"]
-        WSReq["WSS Connection (WebSocket)"]
-    end
-
-    subgraph SecurityPipeline ["1. Security & Middleware Pipeline"]
-        CORS["CORS Dynamic Host Validator<br/>(Origin Whitelist & Null-bypass)"]
-        Helmet["Helmet Security Headers<br/>(HSTS, Clickjacking, XSS Protection)"]
-        Logger["Morgan Logger & Express JSON Parser"]
-        AuthGuard["AuthGuard Middleware<br/>(Firebase Admin SDK verifyIdToken)"]
-    end
-
-    subgraph RouterLayer ["2. Express Routing Layer"]
-        AuthRouter["/api/auth (authRoutes.ts)"]
-        PostRouter["/api/posts (postRoutes.ts)"]
-        UserRouter["/api/users (userRoutes.ts)"]
-        MsgRouter["/api/messages (messageRoutes.ts)"]
-        NotiRouter["/api/notifications (notificationRoutes.ts)"]
-    end
-
-    subgraph ControllerLayer ["3. Business Controllers Layer"]
-        AuthCtrl["authController.ts"]
-        PostCtrl["postController.ts"]
-        UserCtrl["userController.ts"]
-        MsgCtrl["messageController.ts"]
-        NotiCtrl["notificationController.ts"]
-    end
-
-    subgraph RealtimeSubsystem ["4. Realtime Socket.IO Subsystem"]
-        SocketGateway["Socket.IO Server (socket.ts)"]
-        SocketAuth["Handshake Token Verification"]
-        RoomManager["Room & Presence Manager<br/>(user_{id}, conversation_{id})"]
-        RedisAdapter["@socket.io/redis-adapter<br/>(Cross-node Sync)"]
-    end
-
-    subgraph PersistenceLayer ["5. Persistence & In-Memory Storage"]
-        PrismaORM["Prisma 6.x ORM Engine<br/>(Connection Pooling & $transaction)"]
-        TiDBDB[("TiDB Cloud Distributed MySQL<br/>(Users, Posts, Messages, Counts)")]
-        UpstashRedis[("Upstash Redis Cluster (TLS)<br/>(Pub/Sub Channels & Realtime State)")]
-    end
-
-    HTTPReq --> CORS
-    CORS --> Helmet
-    Helmet --> Logger
-    Logger --> AuthGuard
-
-    AuthGuard --> AuthRouter
-    AuthRouter --> AuthCtrl
-
-    AuthGuard --> PostRouter
-    PostRouter --> PostCtrl
-
-    AuthGuard --> UserRouter
-    UserRouter --> UserCtrl
-
-    AuthGuard --> MsgRouter
-    MsgRouter --> MsgCtrl
-
-    AuthGuard --> NotiRouter
-    NotiRouter --> NotiCtrl
-
-    WSReq --> SocketGateway
-    SocketGateway <--> SocketAuth
-    SocketGateway <--> RoomManager
-    RoomManager <--> RedisAdapter
-    RedisAdapter <-->|"Redis Protocol SSL"| UpstashRedis
-
-    AuthCtrl --> PrismaORM
-    PostCtrl --> PrismaORM
-    UserCtrl --> PrismaORM
-    MsgCtrl --> PrismaORM
-    NotiCtrl --> PrismaORM
-    RoomManager -.->|"Persist Chats & Status"| PrismaORM
-    PrismaORM <-->|"MySQL Protocol - Strict SSL"| TiDBDB
-```
-
-### Vòng đời của một Request trên Server:
-1. **Tầng Ingress & Middleware**:
-   * Request từ Client đi qua bộ lọc CORS để xác thực domain nguồn.
-   * `Helmet` gắn các tiêu chuẩn bảo mật HTTP Header cao cấp.
-   * `express.json()` phân giải thân gói tin JSON.
-   * `AuthGuard` giải mã chữ ký số của Bearer Token qua Firebase Admin SDK để xác thực danh tính.
-2. **Tầng Routing & Controller**:
-   * Điều hướng theo module tài nguyên (`/api/posts`, `/api/messages`,...).
-   * Controller kiểm tra tính hợp lệ của dữ liệu đầu vào (Validation) và điều phối nghiệp vụ.
-3. **Tầng ORM & Cơ sở dữ liệu**:
-   * Controller sử dụng Prisma Client để giao tiếp với TiDB Cloud qua kết nối mã hóa SSL.
-   * Các thao tác phức tạp (ví dụ: Tạo bài viết kèm ảnh + trích xuất hashtag + tạo bộ đếm) được bọc trong `prisma.$transaction` để đảm bảo tính toàn vẹn tuyệt đối (ACID).
-4. **Phân hệ Realtime WebSocket**:
-   * Xử lý song song với HTTP thông qua chung một `httpServer`.
-   * Đồng bộ các sự kiện nhắn tin và trạng thái Online/Offline xuyên suốt giữa các worker node thông qua Redis Pub/Sub Adapter.
+### Yêu cầu môi trường:
+* Đã cài đặt [Flutter SDK](https://docs.flutter.dev/get-started/install) (phiên bản 3.x).
+* Đã cài đặt [Node.js](https://nodejs.org/) (phiên bản 18+).
+* MySQL và Redis đang hoạt động (trên máy hoặc qua Docker).
 
 ---
 
-## 🛠️ 5. Technology Stack & Technical Rationale
-
-| Thành phần | Lựa chọn kỹ thuật | Phân tích lý do & Lợi ích kỹ thuật (Engineering Rationale) |
-| :--- | :--- | :--- |
-| **Frontend Framework** | **Flutter 3.x (Dart)** | Đơn nhất hóa codebase (Single Codebase) cho cả Web, Android và iOS; đảm bảo hiệu năng dựng hình 60-120 FPS qua đồ họa Impeller/CanvasKit; quản lý trạng thái phản ứng linh hoạt. |
-| **State Management** | **Provider + ChangeNotifier** | Mô hình quản lý trạng thái phản ứng (Reactive State Management) phân tách biệt lập giữa View và Data Stream; tối ưu Re-rendering thông qua Selector pattern. |
-| **Backend Runtime** | **Node.js (v20+) + TypeScript** | Non-blocking I/O Event Loop xử lý hàng nghìn kết nối đồng thời. Hệ thống Type System chặt chẽ với cấu hình `NodeNext` ESM module resolution. |
-| **REST Framework** | **Express.js 5.x** | Tối ưu hóa hiệu năng routing, native promise support trong middleware giúp giảm thiểu uncaught exceptions. |
-| **ORM Framework** | **Prisma 6.x** | Quản lý vòng đời dữ liệu Type-Safe hoàn chỉnh (Client sinh tự động từ Schema); hỗ trợ Isolation Transaction (`$transaction`) cho các ghi chép lồng nhau. |
-| **Relational Database** | **TiDB Cloud (Distributed MySQL)** | Động cơ MySQL phân tán chuẩn Serverless, tự động mở rộng theo lưu lượng truy cập; hỗ trợ ACID transaction toàn vẹn và giao thức mã hóa SSL Strict. |
-| **Realtime Gateway** | **Socket.IO 4.x + Redis Adapter** | Kết hợp giao thức WebSocket hai chiều với Redis Adapter để đồng bộ trạng thái giữa nhiều tiến trình node server (Clustering/Multi-instance). |
-| **In-Memory Store** | **Upstash Redis (TLS Protocol)** | Hỗ trợ kênh Pub/Sub thời gian thực và quản lý phòng chat, cache session tốc độ microsecond; sử dụng kết nối bảo mật `rediss://`. |
-| **Identity & Security** | **Firebase Auth + Admin SDK** | Cơ chế xác thực kép: Phía client đăng nhập nhanh qua Google OAuth/Email; phía server thẩm định chữ ký số cryptographic của JWT trước khi cấp quyền API. |
-
----
-
-## 📁 6. Project Directory Structure
-
-```text
-Thread-City-/
-├── lib/                                    # Mã nguồn Flutter Client (Web & Mobile)
-│   ├── auth/                               # Màn hình đăng nhập, đăng ký
-│   │   ├── login_screen.dart
-│   │   └── register_screen.dart
-│   ├── core/                               # Cấu hình cốt lõi toàn ứng dụng
-│   │   ├── config/
-│   │   │   └── app_config.dart             # Dynamic Server URL Injection (String.fromEnvironment)
-│   │   └── theme/                          # Typography, Color Tokens, Light/Dark theme
-│   ├── data/
-│   │   ├── models/                         # DTOs (Data Transfer Objects): User, Post, Message, ...
-│   │   └── repositories/                   # Tầng trừu tượng hóa tương tác mạng (HTTP Repositories)
-│   │       ├── auth_repository.dart
-│   │       ├── post_repository.dart
-│   │       ├── user_repository.dart
-│   │       ├── message_repository.dart
-│   │       └── notification_repository.dart
-│   ├── providers/                          # Tầng nghiệp vụ & State Management (ChangeNotifier)
-│   │   ├── auth_provider.dart
-│   │   ├── home_provider.dart
-│   │   ├── post_provider.dart
-│   │   ├── message_provider.dart
-│   │   └── notification_provider.dart
-│   ├── screens/                            # Các màn hình chính (Home, Search, Chat, Profile, Activity)
-│   ├── services/                           # Dịch vụ nền (SocketService, ImageUploadService, PushNoti)
-│   └── widgets/                            # UI Components tái sử dụng (PostCard, BouncyTap, VideoWidget)
-│
-├── server/                                 # Mã nguồn Backend Engine (Node.js + Express + TypeScript)
-│   ├── prisma/
-│   │   ├── schema.prisma                   # Single Source of Truth cho toàn bộ cơ sở dữ liệu
-│   │   ├── migrations/                     # Lịch sử các migration versioning
-│   │   └── seed.ts                         # Script nạp dữ liệu mẫu ban đầu
-│   ├── src/
-│   │   ├── config/
-│   │   │   └── cors.ts                     # Dynamic CORS Whitelist & Mobile Bypass Handler
-│   │   ├── controllers/                    # Tầng xử lý nghiệp vụ yêu cầu (Business Request Handlers)
-│   │   │   ├── authController.ts
-│   │   │   ├── postController.ts
-│   │   │   ├── userController.ts
-│   │   │   ├── messageController.ts
-│   │   │   └── notificationController.ts
-│   │   ├── middlewares/                    # Middleware xác thực JWT, bảo mật route
-│   │   ├── routes/                         # Định nghĩa Endpoints RESTful API
-│   │   ├── services/
-│   │   │   ├── firebaseService.ts          # Khởi tạo Firebase Admin SDK (Cloud/Local multi-target)
-│   │   │   └── redisService.ts             # Redis Connection & Helper
-│   │   ├── socket.ts                       # Socket.IO Server, Redis Adapter & Room Management
-│   │   └── index.ts                        # Entry Point: Express HTTP Server & Socket Binding
-│   ├── Dockerfile                          # Multi-stage production container build (Alpine Linux)
-│   ├── docker-compose.prod.yml             # Cấu hình cụm container production độc lập
-│   ├── package.json                        # Khai báo dependencies & build scripts
-│   └── tsconfig.json                       # Cấu hình TypeScript compiler (ES2022, NodeNext)
-│
-├── web/                                    # Cấu hình Web SPA (index.html, service workers, manifest)
-└── firebase.json                           # Cấu hình Hosting Rules & Single Page Application (SPA) rewrites
-```
+### Bước 1: Khởi động Backend (Server)
+1. Mở terminal, điều hướng vào thư mục `server`:
+   ```bash
+   cd server
+   npm install
+   ```
+2. Tạo file `.env` trong thư mục `server` (tham khảo từ `.env.example`):
+   ```env
+   PORT=3000
+   DATABASE_URL="mysql://root:password@localhost:3306/thread_city"
+   REDIS_URL="redis://localhost:6379"
+   SMTP_USER="email_cua_ban@gmail.com"
+   SMTP_PASS="mat_khau_ung_dung_google"
+   ```
+3. Đồng bộ cơ sở dữ liệu và khởi chạy server:
+   ```bash
+   npx prisma db push
+   npm run dev
+   ```
+   *Máy chủ sẽ chạy tại `http://localhost:3000`.*
 
 ---
 
-## 🗄️ 7. Database Schema & Data Modeling
-
-Cơ sở dữ liệu của Thread City được thiết kế theo tiêu chuẩn Relational Model với độ phân rã cao, đồng thời áp dụng kỹ thuật **Phi chuẩn hóa có kiểm soát (Denormalization)** tại các điểm nóng truy vấn nhằm loại bỏ hoàn toàn các phép tính `COUNT(*)` đắt đỏ khi người dùng cuộn bảng tin (Infinite Scrolling).
-
-```mermaid
-erDiagram
-    users ||--o{ posts : "creates"
-    users ||--o{ likes : "likes"
-    users ||--o{ reposts : "reposts"
-    users ||--o{ follows : "follows"
-    users ||--o{ blocks : "blocks"
-    users ||--o{ notifications : "receives_or_triggers"
-    users ||--o{ conversations : "participant"
-    conversations ||--o{ messages : "contains"
-    posts ||--o{ posts : "replies_to_parent"
-    posts ||--o| post_counts : "denormalized_counters"
-    posts ||--o{ post_media : "contains_media"
-    posts ||--o{ post_hashtags : "tagged_with"
-    hashtags ||--o{ post_hashtags : "categorizes"
-
-    users {
-        int id PK
-        string firebase_uid UK
-        string username UK
-        string email UK
-        string nickname
-        string bio
-        string avatar_url
-        boolean is_verified
-        string status
-        string fcm_token
-        timestamp created_at
-        timestamp updated_at
-    }
-
-    posts {
-        int id PK
-        int user_id FK
-        int parent_id FK
-        text content
-        string type
-        timestamp created_at
-        timestamp updated_at
-        timestamp deleted_at
-    }
-
-    post_counts {
-        int post_id PK, FK
-        int like_count
-        int comment_count
-        int repost_count
-    }
-
-    post_media {
-        int id PK
-        int post_id FK
-        string media_url
-        string media_type
-        int order_index
-    }
-
-    likes {
-        int id PK
-        int user_id FK
-        int post_id FK
-        timestamp created_at
-    }
-
-    reposts {
-        int id PK
-        int user_id FK
-        int post_id FK
-        timestamp created_at
-    }
-
-    follows {
-        int follower_id PK, FK
-        int following_id PK, FK
-        timestamp created_at
-    }
-
-    conversations {
-        int id PK
-        int user1_id FK
-        int user2_id FK
-        timestamp updated_at
-    }
-
-    messages {
-        int id PK
-        int conversation_id FK
-        int sender_id FK
-        text content
-        boolean is_read
-        timestamp created_at
-    }
-```
-
-### Các nguyên tắc cốt lõi trong Schema:
-1. **Recursive Thread Tree (`posts.parent_id`)**: Cột `parent_id` liên kết đệ quy tới chính bảng `posts`. Một bản ghi có thể là một Bài đăng độc lập (`parent_id = NULL`), hoặc là Bình luận/Phản hồi (`parent_id != NULL`). Thiết kế này cho phép phân nhánh thảo luận đa cấp không giới hạn chiều sâu.
-2. **Denormalized Counter Caching (`post_counts`)**: Bảng `post_counts` lưu giữ số đếm `like_count`, `comment_count`, `repost_count` tương ứng $1:1$ với từng bài viết. Khi người dùng bấm Like, hệ thống dùng Transaction nguyên tử để tạo bản ghi trong bảng `likes` đồng thời cập nhật `like_count = like_count + 1`. Nhờ đó truy vấn Feed đạt độ phức tạp $O(1)$ mà không cần `GROUP BY` hay `JOIN COUNT(*)`.
-3. **Compound Unique Constraints**:
-   - `UNIQUE(user_id, post_id)` trong bảng `likes` và `reposts` ngăn chặn hoàn toàn việc người dùng bấm like/repost 2 lần do mạng lag.
-   - `PRIMARY KEY(follower_id, following_id)` trong bảng `follows` bảo đảm tính toàn vẹn tuyệt đối của đồ thị xã hội (Social Graph).
-4. **Targeted Indexing**: Các chỉ mục `idx_created_at`, `idx_user_id`, `idx_parent_id` giúp tối ưu hóa truy vấn phân trang thời gian thực (Time-series Feed sorting) đạt tốc độ mili-giây.
-
----
-
-## ⚡ 8. Realtime Gateway & WebSocket Protocols
-
-```mermaid
-sequenceDiagram
-    autonumber
-    actor Alice as Flutter Client A (Alice)
-    participant Edge as WSS Gateway (Node.js)
-    participant Redis as Redis Cluster (Upstash Pub/Sub)
-    participant DB as TiDB Relational Database
-    actor Bob as Flutter Client B (Bob)
-
-    Note over Alice, Edge: 1. Connection & Handshake
-    Alice->>Edge: Connect WSS (auth: { token: "Firebase_ID_Token" })
-    Edge->>Edge: Firebase Admin SDK verifyIdToken(token)
-    Edge->>DB: Query User Profile by firebase_uid
-    Edge-->>Alice: Connection Approved (socket.id assigned)
-    Edge->>Edge: Join Private Room: user_{alice_id}
-    Edge->>Redis: Publish Event: user_status { userId: Alice, isOnline: true }
-    Redis-->>Bob: Broadcast: Alice is Online
-
-    Note over Alice, Bob: 2. Realtime Direct Messaging
-    Alice->>Edge: Emit: join_conversation (conversationId: 42)
-    Edge->>DB: Validate Alice & Bob belong to conversation 42
-    Edge->>Edge: Alice joins room: conversation_42
-    Alice->>Edge: Emit: typing { conversationId: 42 }
-    Edge->>Bob: Emit: user_typing { conversationId: 42, userId: Alice }
-
-    Alice->>Edge: Emit: send_message { conversationId: 42, text: "Hello Bob" }
-    Edge->>DB: Prisma Transaction: Create Message in DB
-    Edge->>Redis: Publish to Redis Channel: conversation_42
-    Redis-->>Edge: Deliver to all nodes hosting conversation_42 sockets
-    Edge-->>Bob: Emit: receive_message { id: 101, content: "Hello Bob" }
-```
-
----
-
-## 🔒 9. Security Architecture & Network Governance
-
-1. **Hybrid Double-Validation & Zero-Trust Authentication**:
-   * Phía Client đăng nhập qua Google Sign-In hoặc Email/Password bằng Firebase Authentication SDK và nhận `ID Token` (JWT có chữ ký mật mã RS256).
-   * Phía Server giải mã và thẩm định chữ ký số thông qua **Firebase Admin SDK** độc lập trước khi cấp quyền truy cập các API mutation (Tạo bài, Like, Repost, Follow, Cập nhật hồ sơ).
-   * **Zero-Trust & Anti-IDOR**: Danh tính người dùng được trích xuất trực tiếp từ JWT Token (`req.user.firebaseUid`), server từ chối tin tưởng `firebase_uid` truyền qua Body để ngăn chặn triệt để hành vi giả mạo người khác.
-2. **Multi-tier Rate Limiting & Anti-Scraping / DoS Protection**:
-   * Bảo vệ các tầng endpoint trước botnet và kỹ thuật cào dữ liệu tự động thông qua `express-rate-limit`:
-     * **Global Gateway Limiter**: Tối đa 300 requests / 15 phút trên mỗi IP.
-     * **Post Creation Limiter**: Tối đa 10 bài viết / 1 phút (ngăn chặn spam flood bảng tin).
-     * **Search & Discovery Limiter**: Tối đa 30 lượt truy vấn / 1 phút (bảo vệ tài nguyên TiDB full-text index).
-     * **Auth & Sync Limiter**: Tối đa 20 requests / 15 phút (chống brute-force đăng ký/đồng bộ tài khoản).
-   * Thiết lập `trust proxy: 1` đảm bảo nhận diện chính xác Real-IP từ Reverse Proxy Cloud (Render / Cloudflare).
-3. **Strict Dynamic CORS Configuration**:
-   * Whitelist động các domain được cấp phép: `https://thread-b4d7b.web.app`, `https://thread-b4d7b.firebaseapp.com`.
-   * Tự động cho phép các Client Mobile Native (`Origin` header là `null` hoặc không gửi).
-   * Kiểm soát chặt chẽ các headers được phép: `Content-Type`, `Authorization`, `ngrok-skip-browser-warning`.
-
----
-
-## 📡 10. RESTful API Specification
-
-> 💡 **Quy tắc bảo mật**: Mọi endpoint ghi (`POST`, `PATCH`, `DELETE`) đều bắt buộc kèm header `Authorization: Bearer <Firebase_ID_Token>`. Danh tính caller được xác thực mật mã học tại server.
-
-### Authentication Module (`/api/auth`) — *(Rate Limit: 20 req / 15m)*
-| Method | Endpoint | Yêu cầu Header / Body | Mô tả chức năng |
-| :--- | :--- | :--- | :--- |
-| `POST` | `/api/auth/register` | Body: `{ firebase_uid, email, username, nickname }` | Đăng ký hoặc đồng bộ user từ Firebase vào database MySQL |
-| `GET` | `/api/auth/by-uid/:uid` | Params: `uid` (Firebase UID) | Lấy thông tin user hiện tại theo Firebase UID |
-
-### Post & Feed Module (`/api/posts`)
-| Method | Endpoint | Yêu cầu Header / Params | Mô tả chức năng |
-| :--- | :--- | :--- | :--- |
-| `GET` | `/api/posts` | Query: `?firebase_uid=...&following=true/false` | Lấy danh sách bài viết trang Feed *(Global Limit: 300 req/15m)* |
-| `POST` | `/api/posts` | `Bearer Token`<br>Body: `{ content, parent_id, type, media }` | Tạo bài viết mới hoặc bình luận *(Strict Limit: 10 req/1m, User trích xuất từ JWT)* |
-| `GET` | `/api/posts/:id/replies` | Params: `id` (Post ID) | Lấy toàn bộ danh sách câu trả lời lồng nhau của bài viết |
-| `POST` | `/api/posts/:id/like` | `Bearer Token` | Bật/Tắt trạng thái Like bài viết (Atomic Toggle, User trích xuất từ JWT) |
-| `POST` | `/api/posts/:id/repost` | `Bearer Token` | Bật/Tắt chia sẻ lại bài viết lên trang cá nhân (User trích xuất từ JWT) |
-| `GET` | `/api/posts/user/:uid` | Params: `uid`, Query: `?viewer_uid=...` | Lấy danh sách bài viết của một người dùng |
-
-### Search & Discovery Module (`/api/search`) — *(Rate Limit: 30 req / 1m)*
-| Method | Endpoint | Yêu cầu Query / Params | Mô tả chức năng |
-| :--- | :--- | :--- | :--- |
-| `GET` | `/api/search` | Query: `?q=...&type=posts\|users\|hashtags&viewer_uid=...` | Tìm kiếm hợp nhất với thuật toán Hybrid Scoring & Social Graph boost |
-| `GET` | `/api/search/hashtags/:tag/posts` | Params: `tag`, Query: `?viewer_uid=...` | Lấy danh sách bài viết gắn thẻ hashtag theo thứ tự thời gian |
-
-### User Social Graph (`/api/users`)
-| Method | Endpoint | Yêu cầu Header / Params | Mô tả chức năng |
-| :--- | :--- | :--- | :--- |
-| `GET` | `/api/users/:firebase_uid` | Query: `?viewer_uid=...` | Lấy hồ sơ người dùng kèm số đếm Followers, Following |
-| `PATCH` | `/api/users/:firebase_uid` | `Bearer Token`<br>Body: `{ username?, nickname?, bio?, avatar_url? }` | Cập nhật hồ sơ cá nhân *(Anti-IDOR: chỉ cho phép chính chủ sửa)* |
-| `POST` | `/api/users/follow` | `Bearer Token`<br>Body: `{ following_uid }` | Theo dõi người dùng khác *(Follower UID lấy từ JWT)* |
-| `POST` | `/api/users/unfollow` | `Bearer Token`<br>Body: `{ following_uid }` | Hủy theo dõi người dùng *(Follower UID lấy từ JWT)* |
-| `GET` | `/api/users/:userId/followers` | Params: `userId` | Lấy danh sách những người đang theo dõi |
-| `GET` | `/api/users/:userId/following` | Params: `userId` | Lấy danh sách những người mình đang theo dõi |
-
-### Direct Messaging & Notifications (`/api/messages`, `/api/notifications`)
-| Method | Endpoint | Yêu cầu | Mô tả chức năng |
-| :--- | :--- | :--- | :--- |
-| `GET` | `/api/messages/conversations` | `Bearer Token` | Lấy danh sách các cuộc trò chuyện gần nhất |
-| `GET` | `/api/messages/:conversationId` | `Bearer Token` | Lấy lịch sử tin nhắn trong cuộc trò chuyện |
-| `GET` | `/api/notifications` | `?firebase_uid=...` | Lấy danh sách thông báo tương tác (Like, Comment, Follow) |
-
----
-
-## ⚡ 11. Performance Optimizations & High-Load Strategies
-
-1. **Keep-Alive Cloud Daemon**:
-   * Tích hợp cơ chế Ping tự động tần suất 10 phút/lần qua [cron-job.org](https://cron-job.org/) đến endpoint `HEAD /` của Render Server, ngăn chặn hoàn toàn hiện tượng Cold-Start / Sleep của gói Cloud Free.
-2. **Network Resilience & Auto-Retry**:
-   * Tầng Repository trong Flutter cài đặt giải thuật thử lại (Retry with exponential backoff) khi gặp độ trễ mạng tạm thời, đảm bảo ứng dụng không bao giờ bị văng màn hình trắng.
-3. **Database Connection Pooling**:
-   * Prisma Engine tự động duy trì một Connection Pool linh hoạt tới TiDB Cloud qua giao thức TCP Keep-Alive và SSL Strict, tối ưu số lượng truy vấn đồng thời mà không làm quá tải CPU máy chủ cơ sở dữ liệu.
-4. **Cache API Range-Request Bypass**:
-   * File `web/index.html` đăng ký một Service Worker chuyên dụng (`media_sw.js`) để chặn và chuyển tiếp thẳng các yêu cầu byte-range HTTP 206 (Video Streaming) từ Firebase Storage mà không đi qua Cache API của trình duyệt, triệt tiêu lỗi `ERR_CACHE_OPERATION_NOT_SUPPORTED` kinh điển của Flutter Web.
-
----
-
+### Bước 2: Khởi động Frontend (Flutter)
+1. Mở một terminal mới tại thư mục gốc của dự án:
+   ```bash
+   flutter pub get
+   ```
+2. Chạy ứng dụng trên trình duyệt Web:
+   ```bash
+   flutter run -d chrome
+   ```
+   *(Hoặc chọn máy ảo Android / thiết bị iOS để chạy phiên bản Mobile).*
