@@ -32,6 +32,7 @@
     "mysql2": "^3.22.3",
     "nodemailer": "^10.0.10",
     "prisma": "^6.19.3",
+    "resend": "^6.38.1",
     "socket.io": "^4.8.3",
     "typescript": "^6.0.3"
   },

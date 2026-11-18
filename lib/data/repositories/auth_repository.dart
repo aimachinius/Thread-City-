@@ -183,7 +183,7 @@ class AuthRepository {
       url,
       headers: {'Content-Type': 'application/json'},
       body: jsonEncode({'email': email.trim()}),
-    ).timeout(const Duration(seconds: 10));
+    ).timeout(const Duration(seconds: 25));
 
     final data = jsonDecode(response.body);
     if (response.statusCode != 200) {
@@ -204,7 +204,7 @@ class AuthRepository {
         'email': email.trim(),
         'otp': otp.trim(),
       }),
-    ).timeout(const Duration(seconds: 10));
+    ).timeout(const Duration(seconds: 20));
 
     final data = jsonDecode(response.body);
     if (response.statusCode != 200) {
@@ -228,7 +228,7 @@ class AuthRepository {
         'otp': otp.trim(),
         'newPassword': newPassword,
       }),
-    ).timeout(const Duration(seconds: 10));
+    ).timeout(const Duration(seconds: 25));
 
     final data = jsonDecode(response.body);
     if (response.statusCode != 200) {

@@ -1,48 +1,63 @@
 import nodemailer, { type Transporter } from 'nodemailer';
+import { Resend } from 'resend';
 import dotenv from 'dotenv';
 
 dotenv.config();
 
 class MailService {
   private transporter: Transporter | null = null;
+  private resendClient: Resend | null = null;
 
   constructor() {
-    this.initTransporter();
+    this.initProviders();
   }
 
-  private initTransporter() {
+  private initProviders() {
+    // 1. Khởi tạo Resend (Gửi qua HTTPS Port 443 - không bao giờ bị Render chặn)
+    const resendApiKey = process.env.RESEND_API_KEY;
+    if (resendApiKey) {
+      this.resendClient = new Resend(resendApiKey);
+      console.log('🚀 [MailService] Đã kích hoạt Resend API (HTTPS Port 443 - Tối ưu cho Cloud/Render)');
+    }
+
+    // 2. Khởi tạo Nodemailer (Dự phòng cho Localhost hoặc môi trường hỗ trợ SMTP)
     const smtpUser = process.env.SMTP_USER;
     const smtpPass = process.env.SMTP_PASS;
 
-    if (!smtpUser || !smtpPass) {
-      console.warn('⚠️ [MailService] Chưa cấu hình SMTP_USER và SMTP_PASS trong file server/.env.');
-      console.warn('👉 Để gửi email thật tới Gmail, vui lòng thêm SMTP_USER và SMTP_PASS (App Password) vào server/.env');
-      return;
+    if (smtpUser && smtpPass) {
+      const host = process.env.SMTP_HOST || 'smtp.gmail.com';
+      const port = Number(process.env.SMTP_PORT) || 465;
+      const isGmail = host.toLowerCase().includes('gmail');
+
+      // Thêm connectionTimeout 5000ms để fail-fast, không bị treo 21s nếu port bị chặn
+      const transportOptions: any = {
+        connectionTimeout: 5000,
+        greetingTimeout: 5000,
+        socketTimeout: 5000,
+      };
+
+      this.transporter = isGmail
+        ? nodemailer.createTransport({
+            ...transportOptions,
+            service: 'gmail',
+            auth: {
+              user: smtpUser,
+              pass: smtpPass,
+            },
+          })
+        : nodemailer.createTransport({
+            ...transportOptions,
+            host,
+            port,
+            secure: port === 465,
+            auth: {
+              user: smtpUser,
+              pass: smtpPass,
+            },
+          });
+
+      console.log(`📧 [MailService] Đã khởi tạo SMTP Transporter (${isGmail ? 'Gmail Service' : `${host}:${port}`}) với tài khoản: ${smtpUser}`);
     }
-
-    const host = process.env.SMTP_HOST || 'smtp.gmail.com';
-    const port = Number(process.env.SMTP_PORT) || 465;
-    const isGmail = host.toLowerCase().includes('gmail');
-
-    this.transporter = isGmail
-      ? nodemailer.createTransport({
-          service: 'gmail',
-          auth: {
-            user: smtpUser,
-            pass: smtpPass,
-          },
-        })
-      : nodemailer.createTransport({
-          host,
-          port,
-          secure: port === 465,
-          auth: {
-            user: smtpUser,
-            pass: smtpPass,
-          },
-        });
-
-    console.log(`📧 [MailService] Đã khởi tạo SMTP Transporter (${isGmail ? 'Gmail Service' : `${host}:${port}`}) với tài khoản: ${smtpUser}`);
   }
 
   /**
@@ -50,22 +65,9 @@ class MailService {
    */
   async sendOtpEmail(toEmail: string, otp: string): Promise<{ success: boolean; message?: string }> {
     dotenv.config();
-    const smtpUser = process.env.SMTP_USER;
-    const smtpPass = process.env.SMTP_PASS;
 
-    // Nếu chưa khởi tạo transporter, thử init lại
-    if (!this.transporter && smtpUser && smtpPass) {
-      this.initTransporter();
-    }
-
-    const transporter = this.transporter;
-    if (!transporter) {
-      const err = 'Chưa cấu hình thông tin gửi mail (SMTP_USER/SMTP_PASS) trong server/.env!';
-      console.error(`❌ [MailService] ${err}`);
-      return { success: false, message: err };
-    }
-
-    const fromAddress = process.env.SMTP_FROM || `"Thread City" <${smtpUser}>`;
+    // In mã OTP ra console để hỗ trợ dev/test ngay cả khi mạng email gặp sự cố
+    console.log(`🔑 [OTP CONSOLE] Mã xác thực OTP cho tài khoản ${toEmail} là: [ ${otp} ]`);
 
     const htmlContent = `
       <div style="font-family: 'Helvetica Neue', Helvetica, Arial, sans-serif; max-width: 540px; margin: 0 auto; padding: 28px 24px; background-color: #FFF6EC; border-radius: 20px;">
@@ -105,21 +107,93 @@ class MailService {
       </div>
     `;
 
-    try {
-      const info = await transporter.sendMail({
-        from: fromAddress,
-        to: toEmail,
-        subject: `[Thread City] Mã xác thực OTP của bạn là ${otp}`,
-        text: `Mã xác thực OTP đặt lại mật khẩu của bạn là: ${otp}. Mã có hiệu lực trong 5 phút.`,
-        html: htmlContent,
-      });
+    // ── ƯU TIÊN 1: Gửi qua Resend API (HTTPS Port 443 - Render không chặn) ────
+    const resendApiKey = process.env.RESEND_API_KEY;
+    if (resendApiKey) {
+      try {
+        if (!this.resendClient) {
+          this.resendClient = new Resend(resendApiKey);
+        }
+        const fromAddress = process.env.RESEND_FROM || 'Thread City <onboarding@resend.dev>';
+        const result = await this.resendClient.emails.send({
+          from: fromAddress,
+          to: [toEmail],
+          subject: `[Thread City] Mã xác thực OTP của bạn là ${otp}`,
+          html: htmlContent,
+        });
 
-      console.log(`✅ [MailService] Đã gửi thành công email OTP tới: ${toEmail} (MessageId: ${info.messageId})`);
-      return { success: true };
-    } catch (error: any) {
-      console.error(`❌ [MailService] Gửi email thất bại tới ${toEmail}:`, error.message);
-      return { success: false, message: error.message };
+        if (result.error) {
+          console.error(`❌ [MailService] Resend gửi lỗi tới ${toEmail}:`, result.error.message);
+        } else {
+          console.log(`✅ [MailService] Đã gửi thành công email OTP qua Resend tới: ${toEmail} (Id: ${result.data?.id})`);
+          return { success: true };
+        }
+      } catch (e: any) {
+        console.error(`❌ [MailService] Ngoại lệ khi gọi Resend:`, e.message);
+      }
     }
+
+    // ── ƯU TIÊN 2: Gửi qua Brevo REST API (HTTPS Port 443) ───────────────────
+    const brevoApiKey = process.env.BREVO_API_KEY;
+    if (brevoApiKey) {
+      try {
+        const senderEmail = process.env.BREVO_SENDER || process.env.SMTP_USER || 'support@threadcity.com';
+        const res = await fetch('https://api.brevo.com/v3/smtp/email', {
+          method: 'POST',
+          headers: {
+            'accept': 'application/json',
+            'api-key': brevoApiKey,
+            'content-type': 'application/json',
+          },
+          body: JSON.stringify({
+            sender: { name: 'Thread City', email: senderEmail },
+            to: [{ email: toEmail }],
+            subject: `[Thread City] Mã xác thực OTP của bạn là ${otp}`,
+            htmlContent,
+          }),
+        });
+
+        if (res.ok) {
+          console.log(`✅ [MailService] Đã gửi thành công email OTP qua Brevo REST API tới: ${toEmail}`);
+          return { success: true };
+        } else {
+          const errData = await res.json().catch(() => ({}));
+          console.error(`❌ [MailService] Brevo API lỗi:`, errData);
+        }
+      } catch (e: any) {
+        console.error(`❌ [MailService] Ngoại lệ khi gọi Brevo:`, e.message);
+      }
+    }
+
+    // ── ƯU TIÊN 3: Gửi qua Nodemailer SMTP (Localhost hoặc Paid Cloud) ───────
+    if (!this.transporter && process.env.SMTP_USER && process.env.SMTP_PASS) {
+      this.initProviders();
+    }
+
+    if (this.transporter) {
+      const smtpUser = process.env.SMTP_USER;
+      const fromAddress = process.env.SMTP_FROM || `"Thread City" <${smtpUser}>`;
+
+      try {
+        const info = await this.transporter.sendMail({
+          from: fromAddress,
+          to: toEmail,
+          subject: `[Thread City] Mã xác thực OTP của bạn là ${otp}`,
+          text: `Mã xác thực OTP đặt lại mật khẩu của bạn là: ${otp}. Mã có hiệu lực trong 5 phút.`,
+          html: htmlContent,
+        });
+
+        console.log(`✅ [MailService] Đã gửi thành công email OTP qua SMTP tới: ${toEmail} (MessageId: ${info.messageId})`);
+        return { success: true };
+      } catch (error: any) {
+        console.error(`❌ [MailService] Gửi email qua SMTP thất bại tới ${toEmail}:`, error.message);
+        return { success: false, message: `SMTP error: ${error.message}` };
+      }
+    }
+
+    const err = 'Chưa cấu hình dịch vụ email (RESEND_API_KEY, BREVO_API_KEY hoặc SMTP_USER/SMTP_PASS).';
+    console.warn(`⚠️ [MailService] ${err}`);
+    return { success: false, message: err };
   }
 }
 
