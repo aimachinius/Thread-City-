@@ -66,10 +66,11 @@ class _LoginScreenState extends State<LoginScreen> {
     if (!mounted) return;
     if (success) {
       Navigator.pushReplacementNamed(context, AppRoutes.home);
-    } else {
+    } else if (authProvider.errorMessage != null && authProvider.errorMessage!.isNotEmpty) {
+      // Chỉ hiện SnackBar khi có lỗi thật sự từ hệ thống, không hiện khi người dùng tự tắt popup
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
-          content: Text(authProvider.errorMessage ?? context.l10n.googleLoginFailure),
+          content: Text(authProvider.errorMessage!),
           backgroundColor: AppColors.error,
         ),
       );

@@ -34,8 +34,8 @@ class AuthRepository {
 
   AuthRepository(this.authUrl);
 
-  /// Đăng nhập / Đăng ký bằng Google
-  Future<Map<String, dynamic>> signInWithGoogle() async {
+  /// Đăng nhập / Đăng ký bằng Google (trả về null nếu người dùng đóng/hủy popup)
+  Future<Map<String, dynamic>?> signInWithGoogle() async {
     try {
       final GoogleAuthProvider googleProvider = GoogleAuthProvider();
       googleProvider.addScope('email');
@@ -46,11 +46,12 @@ class AuthRepository {
         // Web: dùng Popup
         userCredential = await _firebaseAuth.signInWithPopup(googleProvider);
       } else {
-        // Mobile: dùng redirect
+        // Mobile: dùng redirect / provider
         userCredential = await _firebaseAuth.signInWithProvider(googleProvider);
       }
 
-      final user = userCredential.user!;
+      final user = userCredential.user;
+      if (user == null) return null;
 
       return {
         'localId': user.uid,
@@ -60,8 +61,32 @@ class AuthRepository {
         'isNewUser': userCredential.additionalUserInfo?.isNewUser ?? false,
       };
     } on FirebaseAuthException catch (e) {
+      final code = e.code.toLowerCase();
+      final msg = (e.message ?? '').toLowerCase();
+      // Nhận diện người dùng chủ động đóng popup hoặc hủy đăng nhập
+      if (code == 'popup-closed-by-user' ||
+          code == 'cancelled-popup-request' ||
+          code == 'web-context-cancelled' ||
+          code == 'sign_in_canceled' ||
+          code == 'canceled' ||
+          code == 'cancelled' ||
+          msg.contains('popup has been closed') ||
+          msg.contains('closed by the user') ||
+          msg.contains('canceled') ||
+          msg.contains('cancelled')) {
+        debugPrint('[Auth] Người dùng đã đóng popup Google Sign-In.');
+        return null;
+      }
       throw Exception(e.message ?? 'Đăng nhập Google thất bại');
     } catch (e) {
+      final msg = e.toString().toLowerCase();
+      if (msg.contains('popup has been closed') ||
+          msg.contains('closed by the user') ||
+          msg.contains('canceled') ||
+          msg.contains('cancelled')) {
+        debugPrint('[Auth] Người dùng đã đóng popup Google Sign-In.');
+        return null;
+      }
       throw Exception('Đăng nhập Google thất bại: $e');
     }
   }

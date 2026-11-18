@@ -240,6 +240,15 @@ class AuthProvider extends ChangeNotifier {
 
     try {
       final result = await _authRepository.signInWithGoogle();
+
+      // Nếu người dùng đóng popup/hủy đăng nhập -> Dừng xoay loading ngay và trả về bình thường, không báo lỗi
+      if (result == null) {
+        _isLoading = false;
+        _errorMessage = null;
+        notifyListeners();
+        return false;
+      }
+
       final String uid = result['localId'];
       final String email = result['email'] ?? '';
       final String displayName = result['displayName'] ?? email.split('@').first;
@@ -282,7 +291,17 @@ class AuthProvider extends ChangeNotifier {
       return true;
 
     } on Exception catch (e) {
-      _errorMessage = e.toString().replaceAll('Exception: ', '');
+      final errorStr = e.toString().replaceAll('Exception: ', '');
+      final lower = errorStr.toLowerCase();
+      // Nếu là thông báo đóng popup, không lưu vào errorMessage
+      if (lower.contains('popup has been closed') ||
+          lower.contains('closed by the user') ||
+          lower.contains('canceled') ||
+          lower.contains('cancelled')) {
+        _errorMessage = null;
+      } else {
+        _errorMessage = errorStr;
+      }
       _isLoading = false;
       notifyListeners();
       return false;
