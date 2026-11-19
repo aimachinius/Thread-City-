@@ -137,7 +137,7 @@ export const sendMessage = async (req: Request, res: Response) => {
         status: "DELIVERED",
       },
       include: {
-        sender: { select: { id: true, username: true, avatar_url: true } },
+        sender: { select: { id: true, username: true, nickname: true, avatar_url: true } },
         posts: {
           include: {
             user: { select: { id: true, username: true, avatar_url: true, nickname: true } },
@@ -248,7 +248,7 @@ export const getMessages = async (req: Request, res: Response) => {
         },
       },
       include: {
-        sender: { select: { id: true, username: true, avatar_url: true } },
+        sender: { select: { id: true, username: true, nickname: true, avatar_url: true } },
         posts: {
           include: {
             user: { select: { id: true, username: true, avatar_url: true, nickname: true } },

@@ -36,18 +36,27 @@ class MessageProvider extends ChangeNotifier {
     if (auth.isAuthenticated && auth.currentUserData != null) {
       _connectSocketIfPossible();
       fetchConversations();
+    } else if (!auth.isAuthenticated) {
+      _socketService.disconnect();
     }
   }
 
   Future<void> _init() async {
-    await _connectSocketIfPossible();
     _setupSocketListeners();
+    await _connectSocketIfPossible();
   }
 
   Future<void> _connectSocketIfPossible() async {
-    final token = await FirebaseAuth.instance.currentUser?.getIdToken();
-    if (token != null && token.isNotEmpty) {
-      _socketService.connectSocket(token: token);
+    try {
+      final user = FirebaseAuth.instance.currentUser;
+      if (user != null) {
+        final token = await user.getIdToken();
+        if (token != null && token.isNotEmpty) {
+          _socketService.connectSocket(token: token);
+        }
+      }
+    } catch (e) {
+      debugPrint('⚠️ [MessageProvider] Error getting token for socket: $e');
     }
   }
 
