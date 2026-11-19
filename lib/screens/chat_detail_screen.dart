@@ -54,6 +54,7 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> {
 
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (!mounted) return;
+      _messageProvider.ensureSocketConnected();
       _messageProvider.setActiveConversation(widget.conversation.id);
       _messageProvider.fetchMessages(widget.conversation.id);
       _messageProvider.markAsRead(widget.conversation.id);

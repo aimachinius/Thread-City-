@@ -29,7 +29,7 @@ class MainScreen extends StatefulWidget {
 }
 
 class _MainScreenState extends State<MainScreen>
-    with SingleTickerProviderStateMixin {
+    with SingleTickerProviderStateMixin, WidgetsBindingObserver {
   int _currentIndex = 0;
   late AnimationController _navAnimController;
 
@@ -40,6 +40,7 @@ class _MainScreenState extends State<MainScreen>
   @override
   void initState() {
     super.initState();
+    WidgetsBinding.instance.addObserver(this);
     _navAnimController = AnimationController(
       vsync: this,
       duration: const Duration(milliseconds: 200),
@@ -54,7 +55,17 @@ class _MainScreenState extends State<MainScreen>
   }
 
   @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state == AppLifecycleState.resumed) {
+      if (mounted) {
+        context.read<MessageProvider>().ensureSocketConnected();
+      }
+    }
+  }
+
+  @override
   void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
     _navAnimController.dispose();
     super.dispose();
   }

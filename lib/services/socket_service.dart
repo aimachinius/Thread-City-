@@ -7,6 +7,7 @@ class SocketService {
   static final SocketService _instance = SocketService._internal();
   IO.Socket? socket;
   String? _currentToken;
+  int? _activeConversationId;
   final Map<String, List<Function(dynamic)>> _listeners = {};
 
   factory SocketService() {
@@ -16,12 +17,29 @@ class SocketService {
   SocketService._internal();
 
   bool get isConnected => socket != null && socket!.connected;
+  int? get activeConversationId => _activeConversationId;
+
+  Future<void> ensureConnected() async {
+    if (isConnected) return;
+    try {
+      final user = FirebaseAuth.instance.currentUser;
+      if (user != null) {
+        final token = await user.getIdToken();
+        if (token != null && token.isNotEmpty) {
+          connectSocket(token: token);
+        }
+      }
+    } catch (e) {
+      debugPrint('⚠️ [SocketService] ensureConnected error: $e');
+    }
+  }
 
   void connectSocket({required String token}) {
     if (token.isEmpty) return;
 
-    // Nếu đã kết nối với cùng token, không cần khởi tạo lại
+    // Nếu đã kết nối với cùng token, không cần khởi tạo lại nhưng đảm bảo listeners được gắn
     if (socket != null && socket!.connected && _currentToken == token) {
+      _bindAllListeners();
       return;
     }
 
@@ -44,8 +62,8 @@ class SocketService {
           .disableAutoConnect()
           .setAuth({'token': token})
           .enableReconnection()
-          .setReconnectionAttempts(10)
-          .setReconnectionDelay(1500)
+          .setReconnectionDelay(1000)
+          .setReconnectionDelayMax(5000)
           .build(),
     );
 
@@ -54,6 +72,35 @@ class SocketService {
 
     socket!.onConnect((_) {
       debugPrint('🔌 [SocketService] Connected successfully! Socket ID: ${socket?.id}');
+      _bindAllListeners();
+      if (_activeConversationId != null) {
+        socket!.emit('join_conversation', _activeConversationId);
+      }
+    });
+
+    socket!.onReconnect((_) {
+      debugPrint('🔌 [SocketService] Reconnected successfully! Socket ID: ${socket?.id}');
+      _bindAllListeners();
+      if (_activeConversationId != null) {
+        socket!.emit('join_conversation', _activeConversationId);
+      }
+    });
+
+    socket!.on('reconnect_attempt', (_) async {
+      debugPrint('🔄 [SocketService] Reconnecting attempt...');
+      try {
+        final user = FirebaseAuth.instance.currentUser;
+        if (user != null) {
+          final freshToken = await user.getIdToken();
+          if (freshToken != null && freshToken.isNotEmpty) {
+            _currentToken = freshToken;
+            socket?.auth = {'token': freshToken};
+            socket?.io.options?['auth'] = {'token': freshToken};
+          }
+        }
+      } catch (e) {
+        debugPrint('⚠️ [SocketService] Error refreshing token on reconnect: $e');
+      }
     });
 
     socket!.onDisconnect((reason) {
@@ -87,11 +134,21 @@ class SocketService {
   }
 
   void on(String event, Function(dynamic) callback) {
-    _listeners.putIfAbsent(event, () => []);
-    if (!_listeners[event]!.contains(callback)) {
-      _listeners[event]!.add(callback);
-    }
+    _listeners[event] = [callback];
     _bindEvent(event);
+  }
+
+  static dynamic _normalizeData(dynamic data) {
+    if (data is Map) {
+      final map = <String, dynamic>{};
+      data.forEach((k, v) {
+        map[k.toString()] = _normalizeData(v);
+      });
+      return map;
+    } else if (data is List) {
+      return data.map((item) => _normalizeData(item)).toList();
+    }
+    return data;
   }
 
   void _bindEvent(String event) {
@@ -99,10 +156,11 @@ class SocketService {
     socket!.off(event);
     socket!.on(event, (data) {
       debugPrint('📩 [SocketService] Event "$event" received');
+      final normalizedData = _normalizeData(data);
       final callbacks = List<Function(dynamic)>.from(_listeners[event] ?? []);
       for (final cb in callbacks) {
         try {
-          cb(data);
+          cb(normalizedData);
         } catch (e, stack) {
           debugPrint('❌ [SocketService] Error in callback for "$event": $e\n$stack');
         }
@@ -127,6 +185,7 @@ class SocketService {
 
   // Xin vào phòng chat để nghe tin nhắn riêng
   void joinConversation(int conversationId) {
+    _activeConversationId = conversationId;
     if (socket != null && socket!.connected) {
       socket!.emit('join_conversation', conversationId);
     }
@@ -134,6 +193,9 @@ class SocketService {
 
   // Rời phòng chat khi thoát màn hình chi tiết
   void leaveConversation(int conversationId) {
+    if (_activeConversationId == conversationId) {
+      _activeConversationId = null;
+    }
     if (socket != null && socket!.connected) {
       socket!.emit('leave_conversation', conversationId);
     }

@@ -44,8 +44,12 @@ class ConversationModel {
   }
 
   factory ConversationModel.fromMap(Map<String, dynamic> map) {
+    final partnerRaw = map['partner'];
+    final partnerMap = partnerRaw is Map ? Map<String, dynamic>.from(partnerRaw) : <String, dynamic>{};
+    final lastMsgRaw = map['last_message'];
+    final lastMsgMap = lastMsgRaw is Map ? Map<String, dynamic>.from(lastMsgRaw) : null;
     return ConversationModel(
-      id: map['id'],
+      id: (map['id'] as num?)?.toInt() ?? 0,
       status: ConversationStatus.values.firstWhere(
         (e) => enumName(e) == (map['status'] ?? 'ACTIVE'),
         orElse: () => ConversationStatus.ACTIVE,
@@ -53,9 +57,9 @@ class ConversationModel {
       lastActivityAt:
           DateTime.tryParse((map['last_activity_at'] ?? '').toString()) ??
               DateTime.now(),
-      isMuted: map['is_muted'] ?? false,
-      partner: UserModel.fromMap(map['partner']),
-      lastMessage: map['last_message'] != null ? MessageModel.fromMap(map['last_message']) : null,
+      isMuted: map['is_muted'] == true,
+      partner: UserModel.fromMap(partnerMap),
+      lastMessage: lastMsgMap != null ? MessageModel.fromMap(lastMsgMap) : null,
       unreadCount: (map['unread_count'] as num?)?.toInt() ?? 0,
     );
   }

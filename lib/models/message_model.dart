@@ -67,10 +67,12 @@ class MessageModel {
   }
 
   factory MessageModel.fromMap(Map<String, dynamic> map) {
+    final senderRaw = map['sender'];
+    final senderMap = senderRaw is Map ? Map<String, dynamic>.from(senderRaw) : null;
     return MessageModel(
-      id: map['id'],
-      conversationId: map['conversation_id'],
-      senderId: map['sender_id'],
+      id: (map['id'] as num?)?.toInt() ?? 0,
+      conversationId: (map['conversation_id'] as num?)?.toInt() ?? 0,
+      senderId: (map['sender_id'] as num?)?.toInt() ?? 0,
       type: MessageType.values.firstWhere(
         (e) {
           final incomingType = (map['type'] ?? 'TEXT').toString();
@@ -81,17 +83,17 @@ class MessageModel {
         },
         orElse: () => MessageType.TEXT,
       ),
-      content: map['content'],
-      mediaUrl: map['media_url'],
-      sharedPostId: map['shared_post_id'],
+      content: map['content']?.toString(),
+      mediaUrl: map['media_url']?.toString(),
+      sharedPostId: (map['shared_post_id'] as num?)?.toInt(),
       createdAt: DateTime.tryParse((map['created_at'] ?? '').toString()) ??
           DateTime.now(),
       status: MessageStatus.values.firstWhere(
         (e) => enumName(e) == (map['status'] ?? 'SENT'),
         orElse: () => MessageStatus.SENT,
       ),
-      isDeleted: map['is_deleted'] ?? false,
-      sender: map['sender'] != null ? UserModel.fromMap(map['sender']) : null,
+      isDeleted: map['is_deleted'] == true,
+      sender: senderMap != null ? UserModel.fromMap(senderMap) : null,
       sharedPost: _parseSharedPost(map['posts']),
     );
   }

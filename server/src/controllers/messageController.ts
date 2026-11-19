@@ -124,7 +124,7 @@ export const sendMessage = async (req: Request, res: Response) => {
         status: "DELIVERED",
       },
       include: {
-        sender: { select: { id: true, username: true, nickname: true, avatar_url: true } },
+        sender: { select: { id: true, firebase_uid: true, username: true, nickname: true, avatar_url: true } },
         posts: {
           include: {
             user: { select: { id: true, username: true, avatar_url: true, nickname: true } },
@@ -148,14 +148,20 @@ export const sendMessage = async (req: Request, res: Response) => {
 
     const recipientId = senderId === conversation.user1_id ? conversation.user2_id : conversation.user1_id;
 
-    // Emit new_message to recipient's personal room ONLY (sender receives it via HTTP response)
-    getIO().to(`user_${recipientId}`).emit("new_message", newMessage);
+    // Emit new_message to both conversation room AND recipient's personal room
+    getIO()
+      .to(`conversation_${conversation.id}`)
+      .to(`user_${recipientId}`)
+      .emit("new_message", newMessage);
 
-    getIO().to(`user_${recipientId}`).emit("message_status", {
-      messageId: newMessage.id,
-      conversationId: conversation.id,
-      status: newMessage.status,
-    });
+    getIO()
+      .to(`conversation_${conversation.id}`)
+      .to(`user_${recipientId}`)
+      .emit("message_status", {
+        messageId: newMessage.id,
+        conversationId: conversation.id,
+        status: newMessage.status,
+      });
     getIO().to(`user_${senderId}`).emit("message_status", {
       messageId: newMessage.id,
       conversationId: conversation.id,
@@ -235,7 +241,7 @@ export const getMessages = async (req: Request, res: Response) => {
         },
       },
       include: {
-        sender: { select: { id: true, username: true, nickname: true, avatar_url: true } },
+        sender: { select: { id: true, firebase_uid: true, username: true, nickname: true, avatar_url: true } },
         posts: {
           include: {
             user: { select: { id: true, username: true, avatar_url: true, nickname: true } },
@@ -280,14 +286,14 @@ export const markMessagesAsRead = async (req: Request, res: Response) => {
         ? guarded.conversation.user2_id
         : guarded.conversation.user1_id;
 
-      getIO().to(`user_${partnerId}`).emit("messages_read", {
-        conversationId,
-        readerId: userId,
-      });
-      getIO().to(`user_${userId}`).emit("messages_read", {
-        conversationId,
-        readerId: userId,
-      });
+      getIO()
+        .to(`conversation_${conversationId}`)
+        .to(`user_${partnerId}`)
+        .to(`user_${userId}`)
+        .emit("messages_read", {
+          conversationId,
+          readerId: userId,
+        });
     }
 
     return res.status(200).json({ message: "Đã đánh dấu đã đọc", updatedCount: updateResult.count });
@@ -318,7 +324,11 @@ export const deleteMessage = async (req: Request, res: Response) => {
       data: { is_deleted: true, deleted_at: new Date() },
     });
 
-    getIO().to(`conversation_${message.conversation_id}`).emit("message_deleted", { messageId });
+    getIO()
+      .to(`conversation_${message.conversation_id}`)
+      .to(`user_${guarded.conversation.user1_id}`)
+      .to(`user_${guarded.conversation.user2_id}`)
+      .emit("message_deleted", { messageId, conversationId: message.conversation_id });
     return res.status(200).json(updatedMsg);
   } catch (error) {
     console.error("Lỗi deleteMessage:", error);

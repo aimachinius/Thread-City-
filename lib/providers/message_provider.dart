@@ -34,6 +34,7 @@ class MessageProvider extends ChangeNotifier {
   void updateAuth(app_auth.AuthProvider auth) {
     _authProvider = auth;
     if (auth.isAuthenticated && auth.currentUserData != null) {
+      _setupSocketListeners();
       _connectSocketIfPossible();
       fetchConversations();
     } else if (!auth.isAuthenticated) {
@@ -47,6 +48,10 @@ class MessageProvider extends ChangeNotifier {
 
   Future<void> _init() async {
     _setupSocketListeners();
+    await _connectSocketIfPossible();
+  }
+
+  Future<void> ensureSocketConnected() async {
     await _connectSocketIfPossible();
   }
 
@@ -388,17 +393,28 @@ class MessageProvider extends ChangeNotifier {
 
   void _setupSocketListeners() {
     _socketService.onNewMessage((data) {
-      final newMessage = MessageModel.fromMap(data);
+      if (data == null) return;
+      final Map<String, dynamic> map;
+      if (data is Map<String, dynamic>) {
+        map = data;
+      } else if (data is Map) {
+        map = Map<String, dynamic>.from(data);
+      } else {
+        return;
+      }
+      final newMessage = MessageModel.fromMap(map);
       final convId = newMessage.conversationId;
       final currentUserId = (_authProvider.currentUserData?['id'] as num?)?.toInt();
       final currentFirebaseUid = _authProvider.currentUserData?['firebase_uid'] as String? ?? _authProvider.user?.uid;
 
       final isMe = (currentUserId != null && newMessage.senderId == currentUserId) ||
-                   (currentFirebaseUid != null && newMessage.sender?.firebaseUid == currentFirebaseUid);
-      final isFromOther = !isMe &&
-                   ((currentUserId != null && newMessage.senderId != currentUserId) ||
-                    (currentFirebaseUid != null && newMessage.sender?.firebaseUid != currentFirebaseUid));
+                   (currentFirebaseUid != null && newMessage.sender?.firebaseUid != null && newMessage.sender!.firebaseUid == currentFirebaseUid);
+      final isFromOther = !isMe;
       final isOutsideThisChat = convId != _activeConversationId;
+
+      if (!isOutsideThisChat && isFromOther) {
+        markAsRead(convId);
+      }
 
       // Append to cache
       if (_conversationMessages.containsKey(convId)) {
