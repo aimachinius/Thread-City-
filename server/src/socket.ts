@@ -102,6 +102,12 @@ export const initializeSocket = (httpServer: HttpServer) => {
                 socket.join(`conversation_${parsedConversationId}`);
                 console.log(`User ${socket.id} joined room: conversation_${parsedConversationId}`);
             });
+            socket.on('leave_conversation', (conversationId) => {
+                const parsedConversationId = Number(conversationId);
+                if (Number.isNaN(parsedConversationId)) return;
+                socket.leave(`conversation_${parsedConversationId}`);
+                console.log(`User ${socket.id} left room: conversation_${parsedConversationId}`);
+            });
             socket.on('typing', ({ conversationId }) => {
                 socket.to(`conversation_${conversationId}`).emit('user_typing', { conversationId, userId: user.id });
             });

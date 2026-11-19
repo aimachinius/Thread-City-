@@ -28,36 +28,26 @@ const findOrCreateConversationForSend = async (senderId: number, receiverId: num
     where: { user1_id_user2_id: { user1_id, user2_id } },
   });
 
-  const [follows1, follows2] = await Promise.all([
-    prisma.follow.findUnique({
-      where: {
-        follower_id_following_id: {
-          follower_id: senderId,
-          following_id: receiverId,
-        },
+  const receiverFollowsSender = await prisma.follow.findUnique({
+    where: {
+      follower_id_following_id: {
+        follower_id: receiverId,
+        following_id: senderId,
       },
-    }),
-    prisma.follow.findUnique({
-      where: {
-        follower_id_following_id: {
-          follower_id: receiverId,
-          following_id: senderId,
-        },
-      },
-    }),
-  ]);
-  const isMutualFollow = Boolean(follows1 && follows2);
+    },
+  });
+  const shouldBeActive = Boolean(receiverFollowsSender);
 
   if (!conversation) {
     conversation = await prisma.conversation.create({
       data: {
         user1_id,
         user2_id,
-        status: isMutualFollow ? "ACTIVE" : "PENDING",
+        status: shouldBeActive ? "ACTIVE" : "PENDING",
         last_activity_at: new Date(),
       },
     });
-  } else if (isMutualFollow && conversation.status === "PENDING") {
+  } else if (shouldBeActive && conversation.status === "PENDING") {
     conversation = await prisma.conversation.update({
       where: { id: conversation.id },
       data: { status: "ACTIVE" },
@@ -95,17 +85,14 @@ export const sendMessage = async (req: Request, res: Response) => {
       // Removed check for senderFollowsReceiver
       conversation = await findOrCreateConversationForSend(senderId, receiverId);
     }
-    // POST_SHARE messages bypass conversation restrictions (sharing a post is non-intrusive)
-    const isPostShare = type === "POST_SHARE";
-
-    if (!isPostShare && (conversation.status === "BLOCKED" || conversation.status === "DECLINED")) {
+    if (conversation.status === "BLOCKED" || conversation.status === "DECLINED") {
       return res.status(403).json({ message: "Không thể gửi tin nhắn đến cuộc trò chuyện này" });
     }
 
     let shouldUnlockConversation = false;
     let initiatorId: number | null = null;
 
-    if (!isPostShare && conversation.status === "PENDING") {
+    if (conversation.status === "PENDING") {
       const firstMessage = await prisma.message.findFirst({
         where: { conversation_id: conversation.id },
         orderBy: { created_at: "asc" },
@@ -161,9 +148,8 @@ export const sendMessage = async (req: Request, res: Response) => {
 
     const recipientId = senderId === conversation.user1_id ? conversation.user2_id : conversation.user1_id;
 
-    // Emit to both users' personal rooms
+    // Emit new_message to recipient's personal room ONLY (sender receives it via HTTP response)
     getIO().to(`user_${recipientId}`).emit("new_message", newMessage);
-    getIO().to(`user_${senderId}`).emit("new_message", newMessage);
 
     getIO().to(`user_${recipientId}`).emit("message_status", {
       messageId: newMessage.id,
@@ -181,11 +167,12 @@ export const sendMessage = async (req: Request, res: Response) => {
       getIO().to(`conversation_${conversation.id}`).emit("request_accepted", {
         conversationId: conversation.id,
       });
-      if (initiatorId) {
-        getIO().to(`user_${initiatorId}`).emit("request_accepted", {
-          conversationId: conversation.id,
-        });
-      }
+      getIO().to(`user_${conversation.user1_id}`).emit("request_accepted", {
+        conversationId: conversation.id,
+      });
+      getIO().to(`user_${conversation.user2_id}`).emit("request_accepted", {
+        conversationId: conversation.id,
+      });
     } else if (conversation.status === "PENDING") {
       const receiverRoomUserId =
         senderId === conversation.user1_id ? conversation.user2_id : conversation.user1_id;

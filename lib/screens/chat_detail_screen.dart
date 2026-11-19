@@ -12,6 +12,7 @@ import '../widgets/video_player_widget.dart';
 import '../widgets/custom_cached_image.dart';
 import 'package:image_picker/image_picker.dart';
 import '../services/image_upload_service.dart';
+import '../services/socket_service.dart';
 import '../widgets/typing_indicator.dart';
 import '../widgets/bouncy_tap.dart';
 import 'post_detail_screen.dart';
@@ -82,12 +83,16 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> {
     }
   }
 
+  int? get _currentUserId =>
+      (context.read<AuthProvider>().currentUserData?['id'] as num?)?.toInt();
+
   @override
   void dispose() {
     _messageController.dispose();
     _scrollController.dispose();
     _messageProvider.removeListener(_onProviderChanged);
     _messageProvider.setActiveConversation(null);
+    SocketService().leaveConversation(widget.conversation.id);
     super.dispose();
   }
 
@@ -112,8 +117,7 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> {
     if (content.isEmpty) return;
 
     final provider = context.read<MessageProvider>();
-    final currentUserId =
-        context.read<AuthProvider>().currentUserData?['id'] as int?;
+    final currentUserId = _currentUserId;
     final messages = provider.getActiveMessages(widget.conversation.id);
     final isPending = _conversation.status == ConversationStatus.PENDING;
 
@@ -224,8 +228,7 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> {
       if (!mounted) return;
       if (url != null) {
         final provider = context.read<MessageProvider>();
-        final currentUserId =
-            context.read<AuthProvider>().currentUserData?['id'] as int?;
+        final currentUserId = _currentUserId;
         final messages = provider.getActiveMessages(_conversation.id);
         final isPending = _conversation.status == ConversationStatus.PENDING;
 
@@ -394,8 +397,7 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> {
           if (_conversation.status == ConversationStatus.PENDING)
             Consumer<MessageProvider>(
               builder: (context, provider, _) {
-                final currentUserId =
-                    context.read<AuthProvider>().currentUserData?['id'] as int?;
+                final currentUserId = _currentUserId;
                 final messages = provider.getActiveMessages(_conversation.id);
                 final hasAnyMessage = _conversation.lastMessage != null || messages.isNotEmpty;
 
@@ -483,8 +485,8 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> {
                       itemCount: messages.length,
                       itemBuilder: (context, index) {
                         final message = messages[index];
-                        final isOwn = message.senderId ==
-                            context.read<AuthProvider>().currentUserData?['id'];
+                        final isOwn = _currentUserId != null &&
+                            message.senderId == _currentUserId;
 
 
                         // Check for profile card JSON first
@@ -686,8 +688,7 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> {
 
           Builder(
             builder: (context) {
-              final currentUserId =
-                  context.read<AuthProvider>().currentUserData?['id'] as int?;
+              final currentUserId = _currentUserId;
               final messages = context.watch<MessageProvider>().getActiveMessages(_conversation.id);
               final hasAnyMessage = _conversation.lastMessage != null || messages.isNotEmpty;
               final firstSenderId = messages.isNotEmpty
@@ -705,30 +706,107 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> {
               final shouldShowRequestActions = isPendingRecipient;
 
               if (shouldShowRequestActions) {
-                return Padding(
-                  padding:
-                      const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+                return Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+                  color: AppColors.surface,
                   child: Row(
                     children: [
                       Expanded(
                         child: OutlinedButton(
+                          style: OutlinedButton.styleFrom(
+                            foregroundColor: AppColors.error,
+                            side: const BorderSide(color: AppColors.error, width: 0.8),
+                            padding: const EdgeInsets.symmetric(vertical: 10),
+                            shape: RoundedRectangleBorder(
+                              borderRadius: BorderRadius.circular(10),
+                            ),
+                          ),
                           onPressed: () async {
-                            final provider = context.read<MessageProvider>();
-                            final navigator = Navigator.of(context);
-                            final ok = await provider.declineMessageRequest(
-                              _conversation.id,
+                            final confirm = await showDialog<bool>(
+                              context: context,
+                              builder: (ctx) => AlertDialog(
+                                title: Text(context.l10n.blockUser),
+                                content: const Text("Bạn có chắc chắn muốn chặn người dùng này không?"),
+                                actions: [
+                                  TextButton(
+                                    onPressed: () => Navigator.pop(ctx, false),
+                                    child: Text(context.l10n.cancel),
+                                  ),
+                                  TextButton(
+                                    onPressed: () => Navigator.pop(ctx, true),
+                                    child: Text(
+                                      context.l10n.blockUser,
+                                      style: const TextStyle(color: AppColors.error),
+                                    ),
+                                  ),
+                                ],
+                              ),
                             );
-                            if (!mounted) return;
-                            if (ok) {
+                            if (confirm == true && mounted) {
+                              final provider = context.read<MessageProvider>();
+                              final navigator = Navigator.of(context);
+                              await provider.blockConversation(_conversation.id);
+                              if (!mounted) return;
                               navigator.pop();
+                            }
+                          },
+                          child: Text(context.l10n.blockUser),
+                        ),
+                      ),
+                      const SizedBox(width: 8),
+                      Expanded(
+                        child: OutlinedButton(
+                          style: OutlinedButton.styleFrom(
+                            padding: const EdgeInsets.symmetric(vertical: 10),
+                            shape: RoundedRectangleBorder(
+                              borderRadius: BorderRadius.circular(10),
+                            ),
+                          ),
+                          onPressed: () async {
+                            final confirm = await showDialog<bool>(
+                              context: context,
+                              builder: (ctx) => AlertDialog(
+                                title: Text(context.l10n.btnDecline),
+                                content: const Text("Bạn có muốn xóa yêu cầu tin nhắn này không?"),
+                                actions: [
+                                  TextButton(
+                                    onPressed: () => Navigator.pop(ctx, false),
+                                    child: Text(context.l10n.cancel),
+                                  ),
+                                  TextButton(
+                                    onPressed: () => Navigator.pop(ctx, true),
+                                    child: Text(
+                                      context.l10n.btnDecline,
+                                      style: const TextStyle(color: AppColors.error),
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            );
+                            if (confirm == true && mounted) {
+                              final provider = context.read<MessageProvider>();
+                              final navigator = Navigator.of(context);
+                              final ok = await provider.declineMessageRequest(
+                                _conversation.id,
+                              );
+                              if (!mounted) return;
+                              if (ok) {
+                                navigator.pop();
+                              }
                             }
                           },
                           child: Text(context.l10n.btnDecline),
                         ),
                       ),
-                      const SizedBox(width: 10),
+                      const SizedBox(width: 8),
                       Expanded(
                         child: ElevatedButton(
+                          style: ElevatedButton.styleFrom(
+                            padding: const EdgeInsets.symmetric(vertical: 10),
+                            shape: RoundedRectangleBorder(
+                              borderRadius: BorderRadius.circular(10),
+                            ),
+                          ),
                           onPressed: () async {
                             final provider = context.read<MessageProvider>();
                             final ok = await provider.acceptMessageRequest(
@@ -793,8 +871,7 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> {
     return Consumer<MessageProvider>(
       builder: (context, provider, _) {
         final messages = provider.getActiveMessages(_conversation.id);
-        final currentUserId =
-            context.read<AuthProvider>().currentUserData?['id'] as int?;
+        final currentUserId = _currentUserId;
         final isPending = _conversation.status == ConversationStatus.PENDING;
 
         final firstSenderId = messages.isNotEmpty
@@ -804,7 +881,11 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> {
         final bool canSend;
         final String hintText;
 
-        if (!isPending) {
+        if (_conversation.status == ConversationStatus.BLOCKED ||
+            _conversation.status == ConversationStatus.DECLINED) {
+          canSend = false;
+          hintText = "Không thể gửi tin nhắn đến cuộc trò chuyện này";
+        } else if (!isPending) {
           canSend = true;
           hintText = context.l10n.typeMessagePlaceholder;
         } else {

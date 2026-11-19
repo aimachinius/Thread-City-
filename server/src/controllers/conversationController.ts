@@ -78,25 +78,15 @@ export const createOrOpenConversation = async (req: Request, res: Response) => {
 
     // Removed check for senderFollowsReceiver
 
-    const [follows1, follows2] = await Promise.all([
-      prisma.follow.findUnique({
-        where: {
-          follower_id_following_id: {
-            follower_id: requesterId,
-            following_id: receiverId,
-          },
+    const receiverFollowsRequester = await prisma.follow.findUnique({
+      where: {
+        follower_id_following_id: {
+          follower_id: receiverId,
+          following_id: requesterId,
         },
-      }),
-      prisma.follow.findUnique({
-        where: {
-          follower_id_following_id: {
-            follower_id: receiverId,
-            following_id: requesterId,
-          },
-        },
-      }),
-    ]);
-    const isMutualFollow = Boolean(follows1 && follows2);
+      },
+    });
+    const shouldBeActive = Boolean(receiverFollowsRequester);
 
     const user1_id = Math.min(requesterId, receiverId);
     const user2_id = Math.max(requesterId, receiverId);
@@ -111,7 +101,7 @@ export const createOrOpenConversation = async (req: Request, res: Response) => {
     });
 
     if (conversation) {
-      if (isMutualFollow && conversation.status === "PENDING") {
+      if (shouldBeActive && conversation.status === "PENDING") {
         conversation = await prisma.conversation.update({
           where: { id: conversation.id },
           data: { status: "ACTIVE" },
@@ -127,7 +117,7 @@ export const createOrOpenConversation = async (req: Request, res: Response) => {
         data: {
           user1_id,
           user2_id,
-          status: isMutualFollow ? "ACTIVE" : "PENDING",
+          status: shouldBeActive ? "ACTIVE" : "PENDING",
           last_activity_at: new Date(),
         },
       });
@@ -231,13 +221,20 @@ export const acceptRequest = async (req: Request, res: Response) => {
       return res.status(403).json({ message: "Bạn không thể tự chấp nhận yêu cầu của chính mình" });
     }
 
-    const updatedConv = await prisma.conversation.update({
+    const fullConv = await prisma.conversation.update({
       where: { id: conversationId },
       data: { status: "ACTIVE" },
+      include: {
+        user1: { select: { id: true, username: true, nickname: true, avatar_url: true, is_verified: true } },
+        user2: { select: { id: true, username: true, nickname: true, avatar_url: true, is_verified: true } },
+        messages_dm_conversations_last_message_idTomessages: true,
+      },
     });
 
     getIO().to(`conversation_${conversationId}`).emit("request_accepted", { conversationId });
-    getIO().to(`user_${firstMessage.sender_id}`).emit("request_accepted", { conversationId });
+    getIO().to(`user_${fullConv.user1_id}`).emit("request_accepted", { conversationId });
+    getIO().to(`user_${fullConv.user2_id}`).emit("request_accepted", { conversationId });
+
     await sendPushToUser({
       userId: firstMessage.sender_id,
       title: "Yêu cầu đã được chấp nhận",
@@ -247,7 +244,9 @@ export const acceptRequest = async (req: Request, res: Response) => {
         conversationId: String(conversationId),
       },
     });
-    return res.status(200).json(updatedConv);
+
+    const formatted = await formatConversationForUser(fullConv, userId);
+    return res.status(200).json(formatted);
   } catch (error) {
     console.error("Lỗi acceptRequest:", error);
     return res.status(500).json({ message: "Lỗi hệ thống máy chủ" });
@@ -282,6 +281,10 @@ export const declineRequest = async (req: Request, res: Response) => {
       data: { status: "DECLINED" },
     });
 
+    getIO().to(`conversation_${conversationId}`).emit("request_declined", { conversationId });
+    getIO().to(`user_${guarded.conversation.user1_id}`).emit("request_declined", { conversationId });
+    getIO().to(`user_${guarded.conversation.user2_id}`).emit("request_declined", { conversationId });
+
     return res.status(200).json(updatedConv);
   } catch (error) {
     console.error("Lỗi declineRequest:", error);
@@ -302,6 +305,10 @@ export const blockConversation = async (req: Request, res: Response) => {
       where: { id: conversationId },
       data: { status: "BLOCKED" },
     });
+
+    getIO().to(`conversation_${conversationId}`).emit("request_declined", { conversationId });
+    getIO().to(`user_${guarded.conversation.user1_id}`).emit("request_declined", { conversationId });
+    getIO().to(`user_${guarded.conversation.user2_id}`).emit("request_declined", { conversationId });
 
     return res.status(200).json(updatedConv);
   } catch (error) {

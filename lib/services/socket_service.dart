@@ -120,6 +120,7 @@ class SocketService {
   void disconnect() {
     debugPrint('🔌 [SocketService] Disconnecting socket...');
     _currentToken = null;
+    _listeners.clear();
     socket?.disconnect();
     socket?.dispose();
     socket = null;
@@ -129,6 +130,13 @@ class SocketService {
   void joinConversation(int conversationId) {
     if (socket != null && socket!.connected) {
       socket!.emit('join_conversation', conversationId);
+    }
+  }
+
+  // Rời phòng chat khi thoát màn hình chi tiết
+  void leaveConversation(int conversationId) {
+    if (socket != null && socket!.connected) {
+      socket!.emit('leave_conversation', conversationId);
     }
   }
 
@@ -154,6 +162,7 @@ class SocketService {
   void onTyping(Function(dynamic) callback) => on('user_typing', callback);
   void onStopTyping(Function(dynamic) callback) => on('user_stop_typing', callback);
   void onRequestAccepted(Function(dynamic) callback) => on('request_accepted', callback);
+  void onRequestDeclined(Function(dynamic) callback) => on('request_declined', callback);
   void onMessageRequest(Function(dynamic) callback) => on('message_request', callback);
   void onMessageDeleted(Function(dynamic) callback) => on('message_deleted', callback);
   void onMessageStatus(Function(dynamic) callback) => on('message_status', callback);

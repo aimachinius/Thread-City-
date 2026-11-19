@@ -83,6 +83,9 @@ class MessageProvider extends ChangeNotifier {
   }
 
   void setActiveConversation(int? conversationId) {
+    if (_activeConversationId != null && _activeConversationId != conversationId) {
+      _socketService.leaveConversation(_activeConversationId!);
+    }
     _activeConversationId = conversationId;
     _typingUsers.clear();
     if (conversationId != null) {
@@ -383,8 +386,14 @@ class MessageProvider extends ChangeNotifier {
     _socketService.onNewMessage((data) {
       final newMessage = MessageModel.fromMap(data);
       final convId = newMessage.conversationId;
-      final currentUserId = _authProvider.currentUserData?['id'] as int?;
-      final isFromOther = newMessage.senderId != currentUserId;
+      final currentUserId = (_authProvider.currentUserData?['id'] as num?)?.toInt();
+      final currentFirebaseUid = _authProvider.currentUserData?['firebase_uid'] as String? ?? _authProvider.user?.uid;
+
+      final isMe = (currentUserId != null && newMessage.senderId == currentUserId) ||
+                   (currentFirebaseUid != null && newMessage.sender?.firebaseUid == currentFirebaseUid);
+      final isFromOther = !isMe &&
+                   ((currentUserId != null && newMessage.senderId != currentUserId) ||
+                    (currentFirebaseUid != null && newMessage.sender?.firebaseUid != currentFirebaseUid));
       final isOutsideThisChat = convId != _activeConversationId;
 
       // Append to cache
@@ -434,7 +443,7 @@ class MessageProvider extends ChangeNotifier {
       }
 
       // Show top-down in-app notification if it's not the active conversation and not sent by me
-      if (isOutsideThisChat && isFromOther && newMessage.sender != null) {
+      if (isOutsideThisChat && !isMe && isFromOther && newMessage.sender != null) {
         final sender = newMessage.sender!;
         final strings = AppLocalizations.current;
         final previewText = newMessage.type == MessageType.POST_SHARE
@@ -472,8 +481,8 @@ class MessageProvider extends ChangeNotifier {
 
       if (convId != null && userId != null && convId == _activeConversationId) {
         // Don't show typing for current user
-        final currentUserId = _authProvider.currentUserData?['id'];
-        if (userId == currentUserId) return;
+        final currentUserId = (_authProvider.currentUserData?['id'] as num?)?.toInt();
+        if (currentUserId != null && userId == currentUserId) return;
 
         _typingUsers.add(userId);
         notifyListeners();
@@ -512,6 +521,15 @@ class MessageProvider extends ChangeNotifier {
         }
       }
       _messageRequests.removeWhere((c) => c.id == convId);
+      notifyListeners();
+    });
+
+    _socketService.onRequestDeclined((data) {
+      final convId = (data['conversationId'] as num?)?.toInt();
+      if (convId == null) return;
+      _conversations.removeWhere((c) => c.id == convId);
+      _messageRequests.removeWhere((c) => c.id == convId);
+      _conversationMessages.remove(convId);
       notifyListeners();
     });
 
