@@ -5,6 +5,7 @@ import '../auth/login_screen.dart';
 import '../screens/post_detail_screen.dart';
 import '../screens/profile_screen.dart';
 import '../l10n/app_localizations.dart';
+import '../theme/app_colors.dart';
 
 class AppRoutes {
   static const String home = '/';
@@ -12,6 +13,23 @@ class AppRoutes {
   static const String login = '/login';
 
   static Route<dynamic> onGenerateRoute(RouteSettings settings) {
+    final routeName = settings.name ?? '';
+
+    // Xử lý deep link / OAuth redirect của Firebase Auth (tránh giật màn hình No route defined)
+    if (routeName.startsWith('/link') ||
+        routeName.contains('__/auth') ||
+        routeName.contains('deep_link_id') ||
+        routeName.contains('signInWithRedirect')) {
+      return MaterialPageRoute(
+        settings: settings,
+        builder: (_) => const Scaffold(
+          backgroundColor: AppColors.cream,
+          body: Center(
+            child: CircularProgressIndicator(color: AppColors.coral),
+          ),
+        ),
+      );
+    }
     // Xử lý deep route /post/:id trên Web và trong App
     final uri = Uri.tryParse(settings.name ?? '');
     if (uri != null && uri.pathSegments.length == 2 && uri.pathSegments[0] == 'post') {
@@ -69,10 +87,24 @@ class AppRoutes {
           builder: (_) => const LoginScreen(),
         );
       default:
+        // Nếu là bất kỳ deep link/callback nào không xác định liên quan đến auth
+        if (routeName.contains('link') || routeName.contains('auth')) {
+          return MaterialPageRoute(
+            settings: settings,
+            builder: (_) => const Scaffold(
+              backgroundColor: AppColors.cream,
+              body: Center(
+                child: CircularProgressIndicator(color: AppColors.coral),
+              ),
+            ),
+          );
+        }
         return MaterialPageRoute(
           settings: settings,
           builder: (_) => Scaffold(
-            body: Center(child: Text('No route defined for ${settings.name}')),
+            backgroundColor: AppColors.cream,
+            appBar: AppBar(backgroundColor: AppColors.cream, elevation: 0),
+            body: Center(child: Text('No route defined for $routeName')),
           ),
         );
     }

@@ -40,6 +40,10 @@ class AuthRepository {
       final GoogleAuthProvider googleProvider = GoogleAuthProvider();
       googleProvider.addScope('email');
       googleProvider.addScope('profile');
+      // Bắt buộc Google luôn luôn hiển thị màn hình chọn tài khoản (không tự động đăng nhập acc cũ)
+      googleProvider.setCustomParameters({
+        'prompt': 'select_account',
+      });
 
       UserCredential userCredential;
       if (kIsWeb) {
