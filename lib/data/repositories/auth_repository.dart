@@ -1,6 +1,7 @@
 import 'dart:convert';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/foundation.dart' show debugPrint, kIsWeb;
+import 'package:google_sign_in/google_sign_in.dart';
 import 'package:http/http.dart' as http;
 
 class BackendPolicyException implements Exception {
@@ -37,21 +38,40 @@ class AuthRepository {
   /// Đăng nhập / Đăng ký bằng Google (trả về null nếu người dùng đóng/hủy popup)
   Future<Map<String, dynamic>?> signInWithGoogle() async {
     try {
-      final GoogleAuthProvider googleProvider = GoogleAuthProvider();
-      googleProvider.addScope('email');
-      googleProvider.addScope('profile');
-      // Bắt buộc Google luôn luôn hiển thị màn hình chọn tài khoản (không tự động đăng nhập acc cũ)
-      googleProvider.setCustomParameters({
-        'prompt': 'select_account',
-      });
-
       UserCredential userCredential;
       if (kIsWeb) {
-        // Web: dùng Popup
+        // Web: dùng Popup với GoogleAuthProvider
+        final GoogleAuthProvider googleProvider = GoogleAuthProvider();
+        googleProvider.addScope('email');
+        googleProvider.addScope('profile');
+        googleProvider.setCustomParameters({
+          'prompt': 'select_account',
+        });
         userCredential = await _firebaseAuth.signInWithPopup(googleProvider);
       } else {
-        // Mobile: dùng redirect / provider
-        userCredential = await _firebaseAuth.signInWithProvider(googleProvider);
+        // Mobile (iOS & Android): Dùng Google Sign In SDK native (không qua web redirect Safari)
+        final GoogleSignIn googleSignIn = GoogleSignIn(
+          scopes: ['email', 'profile'],
+        );
+        // Buộc hiện màn hình chọn tài khoản bằng cách signOut phiên cũ trước khi signIn
+        try {
+          await googleSignIn.signOut();
+        } catch (_) {}
+
+        final GoogleSignInAccount? googleUser = await googleSignIn.signIn();
+        if (googleUser == null) {
+          // Người dùng đóng/hủy chọn tài khoản
+          debugPrint('[Auth] Người dùng đã đóng popup Google Sign-In.');
+          return null;
+        }
+
+        final GoogleSignInAuthentication googleAuth = await googleUser.authentication;
+        final AuthCredential credential = GoogleAuthProvider.credential(
+          accessToken: googleAuth.accessToken,
+          idToken: googleAuth.idToken,
+        );
+
+        userCredential = await _firebaseAuth.signInWithCredential(credential);
       }
 
       final user = userCredential.user;
@@ -86,6 +106,7 @@ class AuthRepository {
       final msg = e.toString().toLowerCase();
       if (msg.contains('popup has been closed') ||
           msg.contains('closed by the user') ||
+          msg.contains('sign_in_canceled') ||
           msg.contains('canceled') ||
           msg.contains('cancelled')) {
         debugPrint('[Auth] Người dùng đã đóng popup Google Sign-In.');
@@ -427,6 +448,11 @@ class AuthRepository {
 
   /// Đăng xuất
   Future<void> signOut() async {
+    try {
+      if (!kIsWeb) {
+        await GoogleSignIn().signOut();
+      }
+    } catch (_) {}
     await _firebaseAuth.signOut();
   }
 }

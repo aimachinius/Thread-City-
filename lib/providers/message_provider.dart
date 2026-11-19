@@ -38,6 +38,10 @@ class MessageProvider extends ChangeNotifier {
       fetchConversations();
     } else if (!auth.isAuthenticated) {
       _socketService.disconnect();
+      _conversations.clear();
+      _messageRequests.clear();
+      _conversationMessages.clear();
+      _activeConversationId = null;
     }
   }
 

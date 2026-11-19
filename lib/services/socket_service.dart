@@ -120,7 +120,6 @@ class SocketService {
   void disconnect() {
     debugPrint('🔌 [SocketService] Disconnecting socket...');
     _currentToken = null;
-    _listeners.clear();
     socket?.disconnect();
     socket?.dispose();
     socket = null;
